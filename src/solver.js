@@ -49,43 +49,53 @@ export class PuzzleSolver {
      * - A FLOOR tile (if allowed/traversing out), or
      * specifically: Every cell of the block that crosses the boundary must pass through GATE tiles of the matching color.
      */
+    isPlayableCell(gx, gy) {
+        if (gx < 0 || gx >= this.cols || gy < 0 || gy >= this.rows) {
+            return false;
+        }
+        const tile = this.tiles[gy][gx];
+        return tile.type !== TILE_TYPES.VOID;
+    }
+
+    /**
+     * Checks if a block can successfully EXIT the board through a gate of matching color.
+     */
     canExit(block, bx, by, dx, dy, occupiedGrid) {
         const shapeCells = getShapeCells(block.type, block.rotation);
         let currentX = bx;
         let currentY = by;
 
-        // Move step by step until all cells are strictly outside grid bounds
         while (true) {
             currentX += dx;
             currentY += dy;
 
-            let anyInside = false;
+            let anyInsidePlayable = false;
 
             for (const [cx, cy] of shapeCells) {
                 const gx = currentX + cx;
                 const gy = currentY + cy;
 
-                // Check if this cell is within grid bounds
-                if (gx >= 0 && gx < this.cols && gy >= 0 && gy < this.rows) {
-                    anyInside = true;
-                    // Check if obstructed by another block
+                if (this.isPlayableCell(gx, gy)) {
+                    anyInsidePlayable = true;
+
+                    // Check collision with other blocks
                     if (occupiedGrid[gy][gx] !== null && occupiedGrid[gy][gx] !== block.id) {
                         return false;
                     }
 
                     const tile = this.tiles[gy][gx];
-                    if (tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.VOID) {
+                    if (tile.type === TILE_TYPES.WALL) {
                         return false;
                     }
                     if (tile.type === TILE_TYPES.GATE && tile.color !== block.color) {
                         return false;
                     }
                 } else {
-                    // Cell is outside bounds. The point where it crossed the boundary must have been a matching GATE.
-                    // To verify valid exit, we trace the cell's previous position before leaving bounds.
+                    // Cell is in non-playable space (VOID or out of bounds).
+                    // Verify that the cell crossed through a matching GATE tile when leaving playable space.
                     const prevGx = gx - dx;
                     const prevGy = gy - dy;
-                    if (prevGx >= 0 && prevGx < this.cols && prevGy >= 0 && prevGy < this.rows) {
+                    if (this.isPlayableCell(prevGx, prevGy)) {
                         const exitTile = this.tiles[prevGy][prevGx];
                         if (exitTile.type !== TILE_TYPES.GATE || exitTile.color !== block.color) {
                             return false;
@@ -94,8 +104,8 @@ export class PuzzleSolver {
                 }
             }
 
-            if (!anyInside) {
-                // Fully exited!
+            if (!anyInsidePlayable) {
+                // All cells of the block have crossed out into VOID or off-board!
                 return true;
             }
         }
