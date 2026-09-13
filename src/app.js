@@ -490,6 +490,7 @@ class ColorBlockApp {
                 this.grid = new GameGrid(this.cols, this.rows);
                 this.blocks = [];
                 this.selectedBlockId = null;
+                this.resetControls();
                 this.switchMode('editor');
                 this.renderBoard();
             }
