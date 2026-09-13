@@ -7,6 +7,7 @@ A modern, responsive, browser-based **Color Block Escape Puzzle Solver** built f
 - **Visual Map Editor:**
   - Configurable board dimensions (from 3x3 to 15x15, default 8x8).
   - Grid element tools: **Wall**, **Gate** (colored exits), and **Erase**.
+  - **Toggle Gates:** Special gates that alternate between open and closed on every block elimination event.
   - Implicit floor/void generation via automatic flood-fill from border cells.
   - Color picker palette for defining gates and matching blocks.
 
@@ -17,6 +18,13 @@ A modern, responsive, browser-based **Color Block Escape Puzzle Solver** built f
     - `L Profile (3 squares)`
     - `T Profile (4 squares)`
     - `+ Profile (5 squares)`
+  - **Special Block Types:**
+    - `Normal`: Regular color blocks.
+    - `Dual Color`: Displays outer color with inner cross pattern. Must first pass through an outer-color gate to peel off its outer layer and become a normal block of the inner color.
+    - `Locked`: Locked with a key counter badge. Cannot move until required keys are collected.
+    - `Key Block`: Regular movement; eliminating it reduces padlock counters on all locked blocks by 1.
+    - `Frozen`: Unmovable while frozen with an ice overlay and freeze counter. Any block elimination event decrements the freeze counter by 1 until it unfreezes.
+  - **Priority Flag (⭐):** Assignable to at most 1 block to prioritize exiting it in as few moves as possible.
   - **90° Shape Rotation** before and after placement.
   - Automatic smart placement in available enclosed floor space.
   - Interactive mouse **Drag & Drop** with real-time green/red visual validation.
