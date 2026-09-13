@@ -11,8 +11,8 @@ class ColorBlockApp {
         this.rows = 8;
         this.grid = new GameGrid(this.cols, this.rows);
 
-        // Grid editing state
-        this.activeGridTool = TILE_TYPES.FLOOR; // 'floor', 'wall', 'gate', 'void'
+        // Grid editing state: 'wall', 'gate', 'erase'
+        this.activeGridTool = 'wall';
         this.selectedColor = COLOR_PALETTE[0];
 
         // Block creation state
@@ -22,6 +22,9 @@ class ColorBlockApp {
         // Blocks list: [{ id, type, rotation, color, x, y }]
         this.blocks = [];
         this.nextBlockId = 1;
+
+        // Undo stack
+        this.undoStack = [];
 
         // Player / Solution state
         this.isSolving = false;
@@ -52,11 +55,12 @@ class ColorBlockApp {
         this.btnModePlayer = document.getElementById('btn-mode-player');
         this.stepCounterEl = document.getElementById('step-counter');
         this.moveDescEl = document.getElementById('move-description');
+        this.btnUndo = document.getElementById('btn-undo');
     }
 
     initColorPicker() {
         this.colorPickerEl.innerHTML = '';
-        COLOR_PALETTE.forEach((color, idx) => {
+        COLOR_PALETTE.forEach((color) => {
             const swatch = document.createElement('div');
             swatch.className = `color-swatch ${color === this.selectedColor ? 'selected' : ''}`;
             swatch.style.backgroundColor = color;
@@ -96,15 +100,97 @@ class ColorBlockApp {
         }
     }
 
+    saveUndoState() {
+        this.undoStack.push({
+            gridRawTiles: JSON.parse(JSON.stringify(this.grid.tiles)),
+            cols: this.cols,
+            rows: this.rows,
+            blocks: JSON.parse(JSON.stringify(this.blocks)),
+            selectedBlockId: this.selectedBlockId,
+            nextBlockId: this.nextBlockId
+        });
+        if (this.undoStack.length > 50) {
+            this.undoStack.shift();
+        }
+    }
+
+    undo() {
+        if (this.undoStack.length === 0) return;
+        const lastState = this.undoStack.pop();
+        this.cols = lastState.cols;
+        this.rows = lastState.rows;
+        this.grid.cols = lastState.cols;
+        this.grid.rows = lastState.rows;
+        this.grid.tiles = JSON.parse(JSON.stringify(lastState.gridRawTiles));
+        this.blocks = JSON.parse(JSON.stringify(lastState.blocks));
+        this.selectedBlockId = lastState.selectedBlockId;
+        this.nextBlockId = lastState.nextBlockId;
+
+        // Update inputs
+        const colsInput = document.getElementById('input-cols');
+        const rowsInput = document.getElementById('input-rows');
+        if (colsInput) colsInput.value = this.cols;
+        if (rowsInput) rowsInput.value = this.rows;
+
+        this.renderBoard();
+    }
+
+    isValidBlockPosition(type, rotation, color, x, y, ignoreBlockId = null) {
+        const shapeCells = getShapeCells(type, rotation);
+        const effectiveTiles = this.grid.getEffectiveTiles();
+
+        for (const [cx, cy] of shapeCells) {
+            const gx = x + cx;
+            const gy = y + cy;
+
+            if (gx < 0 || gx >= this.cols || gy < 0 || gy >= this.rows) {
+                return false;
+            }
+
+            const tile = effectiveTiles[gy][gx];
+            if (tile.type === TILE_TYPES.VOID || tile.type === TILE_TYPES.WALL) {
+                return false;
+            }
+            if (tile.type === TILE_TYPES.GATE && tile.color !== color) {
+                return false;
+            }
+
+            // Check collision with other blocks
+            for (const other of this.blocks) {
+                if (other.id === ignoreBlockId) continue;
+                const otherCells = getShapeCells(other.type, other.rotation);
+                for (const [ocx, ocy] of otherCells) {
+                    if (other.x + ocx === gx && other.y + ocy === gy) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    findFirstValidPosition(type, rotation, color) {
+        for (let r = 0; r < this.rows; r++) {
+            for (let c = 0; c < this.cols; c++) {
+                if (this.isValidBlockPosition(type, rotation, color, c, r)) {
+                    return { x: c, y: r };
+                }
+            }
+        }
+        return null;
+    }
+
     renderBoard() {
         this.gridBoardEl.innerHTML = '';
         this.gridBoardEl.style.gridTemplateColumns = `repeat(${this.cols}, var(--cell-size))`;
         this.gridBoardEl.style.gridTemplateRows = `repeat(${this.rows}, var(--cell-size))`;
 
+        const effectiveTiles = this.grid.getEffectiveTiles();
+
         // Render Grid Cells
         for (let r = 0; r < this.rows; r++) {
             for (let c = 0; c < this.cols; c++) {
-                const tile = this.grid.getTile(c, r);
+                const tile = effectiveTiles[r][c];
                 const cell = document.createElement('div');
                 cell.className = `grid-cell tile-${tile.type}`;
                 cell.dataset.x = c;
@@ -116,7 +202,9 @@ class ColorBlockApp {
 
                 if (this.mode === 'editor') {
                     cell.addEventListener('mousedown', (e) => {
+                        if (e.button !== 0) return;
                         this.isMouseDown = true;
+                        this.saveUndoState();
                         this.handleCellClick(c, r);
                     });
                     cell.addEventListener('mouseenter', (e) => {
@@ -163,32 +251,123 @@ class ColorBlockApp {
         });
 
         if (this.mode === 'editor') {
-            blockEl.addEventListener('click', (e) => {
+            blockEl.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
                 e.stopPropagation();
-                this.selectedBlockId = (this.selectedBlockId === block.id) ? null : block.id;
+                e.preventDefault();
+
+                this.selectedBlockId = block.id;
                 this.renderBoard();
+
+                const startMouseX = e.clientX;
+                const startMouseY = e.clientY;
+                const origX = block.x;
+                const origY = block.y;
+
+                let dragging = false;
+                let candidateX = origX;
+                let candidateY = origY;
+                let isValid = true;
+                let isOffBoard = false;
+
+                const onMouseMove = (moveEvent) => {
+                    const dxPixels = moveEvent.clientX - startMouseX;
+                    const dyPixels = moveEvent.clientY - startMouseY;
+
+                    if (!dragging && (Math.abs(dxPixels) > 3 || Math.abs(dyPixels) > 3)) {
+                        dragging = true;
+                    }
+
+                    if (!dragging) return;
+
+                    const gridOffsetCols = Math.round(dxPixels / 42);
+                    const gridOffsetRows = Math.round(dyPixels / 42);
+
+                    candidateX = origX + gridOffsetCols;
+                    candidateY = origY + gridOffsetRows;
+
+                    const shape = getShapeCells(block.type, block.rotation);
+                    const minX = Math.min(...shape.map(([cx]) => candidateX + cx));
+                    const maxX = Math.max(...shape.map(([cx]) => candidateX + cx));
+                    const minY = Math.min(...shape.map(([, cy]) => candidateY + cy));
+                    const maxY = Math.max(...shape.map(([, cy]) => candidateY + cy));
+
+                    isOffBoard = (maxX < 0 || minX >= this.cols || maxY < 0 || minY >= this.rows);
+
+                    if (isOffBoard) {
+                        isValid = false;
+                    } else {
+                        isValid = this.isValidBlockPosition(block.type, block.rotation, block.color, candidateX, candidateY, block.id);
+                    }
+
+                    this.updateDragPreview(block, candidateX, candidateY, isValid, isOffBoard);
+                };
+
+                const onMouseUp = () => {
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+
+                    if (dragging) {
+                        if (isOffBoard) {
+                            this.saveUndoState();
+                            this.blocks = this.blocks.filter(b => b.id !== block.id);
+                            this.selectedBlockId = null;
+                        } else if (isValid && (candidateX !== origX || candidateY !== origY)) {
+                            this.saveUndoState();
+                            block.x = candidateX;
+                            block.y = candidateY;
+                        } else {
+                            block.x = origX;
+                            block.y = origY;
+                        }
+                    }
+                    this.renderBoard();
+                };
+
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
             });
         }
 
         this.gridBoardEl.appendChild(blockEl);
     }
 
+    updateDragPreview(block, candX, candY, isValid, isOffBoard) {
+        const blockEl = this.gridBoardEl.querySelector(`.block-element[data-id="${block.id}"]`);
+        if (!blockEl) return;
+
+        const shapeCells = getShapeCells(block.type, block.rotation);
+        const cellElements = blockEl.querySelectorAll('.block-cell');
+
+        shapeCells.forEach(([cx, cy], idx) => {
+            if (cellElements[idx]) {
+                const cellX = (candX + cx) * 42;
+                const cellY = (candY + cy) * 42;
+                cellElements[idx].style.left = `${cellX}px`;
+                cellElements[idx].style.top = `${cellY}px`;
+
+                cellElements[idx].classList.remove('drag-valid', 'drag-invalid', 'drag-delete');
+                if (isOffBoard) {
+                    cellElements[idx].classList.add('drag-delete');
+                } else if (isValid) {
+                    cellElements[idx].classList.add('drag-valid');
+                } else {
+                    cellElements[idx].classList.add('drag-invalid');
+                }
+            }
+        });
+    }
+
     handleCellClick(x, y) {
         if (this.mode !== 'editor') return;
 
-        // If a block is currently selected, clicking on board moves that block
-        if (this.selectedBlockId !== null) {
-            const blockIndex = this.blocks.findIndex(b => b.id === this.selectedBlockId);
-            if (blockIndex !== -1) {
-                this.blocks[blockIndex].x = x;
-                this.blocks[blockIndex].y = y;
-                this.renderBoard();
-                return;
-            }
+        if (this.activeGridTool === 'wall') {
+            this.grid.setTile(x, y, TILE_TYPES.WALL);
+        } else if (this.activeGridTool === 'gate') {
+            this.grid.setTile(x, y, TILE_TYPES.GATE, this.selectedColor);
+        } else if (this.activeGridTool === 'erase') {
+            this.grid.setTile(x, y, TILE_TYPES.EMPTY);
         }
-
-        // Apply active grid tool
-        this.grid.setTile(x, y, this.activeGridTool, this.selectedColor);
         this.renderBoard();
     }
 
@@ -198,7 +377,7 @@ class ColorBlockApp {
         });
 
         // Grid Tool Selection Buttons
-        ['floor', 'wall', 'gate', 'void'].forEach(tool => {
+        ['wall', 'gate', 'erase'].forEach(tool => {
             const btn = document.getElementById(`tool-${tool}`);
             if (btn) {
                 btn.addEventListener('click', () => {
@@ -207,7 +386,6 @@ class ColorBlockApp {
                     });
                     btn.classList.add('active');
                     this.activeGridTool = tool;
-                    this.selectedBlockId = null;
                 });
             }
         });
@@ -219,6 +397,20 @@ class ColorBlockApp {
         });
 
         document.getElementById('btn-rotate-shape').addEventListener('click', () => {
+            if (this.selectedBlockId !== null) {
+                const block = this.blocks.find(b => b.id === this.selectedBlockId);
+                if (block) {
+                    const newRot = (block.rotation + 1) % 4;
+                    if (this.isValidBlockPosition(block.type, newRot, block.color, block.x, block.y, block.id)) {
+                        this.saveUndoState();
+                        block.rotation = newRot;
+                        this.renderBoard();
+                    } else {
+                        alert('Rotacija bloka nije moguća na trenutnoj poziciji jer bi se preklapao sa zidom ili drugim blokom.');
+                    }
+                    return;
+                }
+            }
             this.selectedShapeRotation = (this.selectedShapeRotation + 1) % 4;
             this.renderShapePreview();
         });
@@ -226,14 +418,21 @@ class ColorBlockApp {
         // Add Block Button
         document.getElementById('btn-add-block').addEventListener('click', () => {
             if (this.mode !== 'editor') return;
-            // Place at first available cell (0, 0)
+
+            const pos = this.findFirstValidPosition(this.selectedShapeType, this.selectedShapeRotation, this.selectedColor);
+            if (!pos) {
+                alert('Nema slobodnog mesta na podu za ovaj oblik! Napravite unutrašnji prostor opasan zidovima.');
+                return;
+            }
+
+            this.saveUndoState();
             const newBlock = {
                 id: this.nextBlockId++,
                 type: this.selectedShapeType,
                 rotation: this.selectedShapeRotation,
                 color: this.selectedColor,
-                x: 0,
-                y: 0
+                x: pos.x,
+                y: pos.y
             };
             this.blocks.push(newBlock);
             this.selectedBlockId = newBlock.id;
@@ -245,6 +444,7 @@ class ColorBlockApp {
             const cols = parseInt(document.getElementById('input-cols').value, 10);
             const rows = parseInt(document.getElementById('input-rows').value, 10);
             if (cols >= 3 && cols <= 15 && rows >= 3 && rows <= 15) {
+                this.saveUndoState();
                 this.cols = cols;
                 this.rows = rows;
                 this.grid.resize(cols, rows);
@@ -252,9 +452,17 @@ class ColorBlockApp {
             }
         });
 
+        // Undo Button
+        if (this.btnUndo) {
+            this.btnUndo.addEventListener('click', () => {
+                this.undo();
+            });
+        }
+
         // Clear Map Button
         document.getElementById('btn-clear').addEventListener('click', () => {
             if (confirm('Da li ste sigurni da želite da očistite celu mapu i sve blokove?')) {
+                this.saveUndoState();
                 this.grid = new GameGrid(this.cols, this.rows);
                 this.blocks = [];
                 this.selectedBlockId = null;
@@ -287,8 +495,10 @@ class ColorBlockApp {
         this.btnModeEditor.addEventListener('click', () => this.switchMode('editor'));
         this.btnModePlayer.addEventListener('click', () => this.switchMode('player'));
 
-        // Keyboard navigation for step player
+        // Keyboard navigation and shortcuts
         document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
             if (this.mode === 'player') {
                 if (e.key === 'ArrowLeft' && this.currentStepIndex > 0) {
                     this.currentStepIndex--;
@@ -297,16 +507,32 @@ class ColorBlockApp {
                     this.currentStepIndex++;
                     this.updatePlayerUI();
                 }
-            } else if (this.mode === 'editor' && this.selectedBlockId !== null) {
-                if (e.key === 'Delete' || e.key === 'Backspace') {
-                    this.blocks = this.blocks.filter(b => b.id !== this.selectedBlockId);
-                    this.selectedBlockId = null;
-                    this.renderBoard();
-                } else if (e.key === 'r' || e.key === 'R') {
-                    const block = this.blocks.find(b => b.id === this.selectedBlockId);
-                    if (block) {
-                        block.rotation = (block.rotation + 1) % 4;
+            } else if (this.mode === 'editor') {
+                if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+                    e.preventDefault();
+                    this.undo();
+                    return;
+                }
+
+                if (this.selectedBlockId !== null) {
+                    if (e.key === 'Delete' || e.key === 'Backspace') {
+                        e.preventDefault();
+                        this.saveUndoState();
+                        this.blocks = this.blocks.filter(b => b.id !== this.selectedBlockId);
+                        this.selectedBlockId = null;
                         this.renderBoard();
+                    } else if (e.key === 'r' || e.key === 'R') {
+                        const block = this.blocks.find(b => b.id === this.selectedBlockId);
+                        if (block) {
+                            const newRot = (block.rotation + 1) % 4;
+                            if (this.isValidBlockPosition(block.type, newRot, block.color, block.x, block.y, block.id)) {
+                                this.saveUndoState();
+                                block.rotation = newRot;
+                                this.renderBoard();
+                            } else {
+                                alert('Rotacija bloka nije moguća na trenutnoj poziciji.');
+                            }
+                        }
                     }
                 }
             }
@@ -339,7 +565,6 @@ class ColorBlockApp {
         this.statusMessageEl.style.display = 'flex';
         this.statusTextEl.textContent = 'Rešavanje slagalice u toku...';
 
-        // Run solver in Web Worker or async timeout to avoid UI freeze
         setTimeout(() => {
             const solver = new PuzzleSolver(this.grid.toJSON(), this.blocks);
             const result = solver.solve(150000, (exploredCount) => {
@@ -349,7 +574,6 @@ class ColorBlockApp {
             this.statusMessageEl.style.display = 'none';
 
             if (result.success) {
-                // Build initial step 0 state
                 this.solutionSteps = [
                     { blocks: this.blocks.map(b => ({ ...b })), move: null },
                     ...result.steps

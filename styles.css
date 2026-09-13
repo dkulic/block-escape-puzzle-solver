@@ -323,6 +323,23 @@ header p {
     border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+/* Drag & Drop Feedback */
+.block-cell.drag-valid {
+    box-shadow: 0 0 0 3px #10b981, 0 4px 12px rgba(16, 185, 129, 0.6) !important;
+    opacity: 0.9;
+}
+
+.block-cell.drag-invalid {
+    box-shadow: 0 0 0 3px #ef4444, 0 4px 12px rgba(239, 68, 68, 0.6) !important;
+    opacity: 0.75;
+}
+
+.block-cell.drag-delete {
+    box-shadow: 0 0 0 3px #ef4444, 0 4px 12px rgba(239, 68, 68, 0.8) !important;
+    opacity: 0.4;
+    filter: grayscale(0.8);
+}
+
 /* Solution Controls */
 .solution-controls {
     display: flex;

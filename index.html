@@ -40,10 +40,9 @@
             <div class="tool-group">
                 <div class="section-title">Alat za Mrežu (Grid)</div>
                 <div class="tool-buttons">
-                    <button id="tool-floor" class="btn active" title="Pod po kom se blokovi kreću">🟦 Pod</button>
-                    <button id="tool-wall" class="btn" title="Nepregledan zid">🧱 Zid</button>
+                    <button id="tool-wall" class="btn active" title="Nepregledan zid">🧱 Zid</button>
                     <button id="tool-gate" class="btn" title="Kapija u boji kroz koju izlaze blokovi">🚪 Kapija</button>
-                    <button id="tool-void" class="btn" title="Praznina van igre">⬛ Praznina</button>
+                    <button id="tool-erase" class="btn" title="Obriši zid ili kapiju">🧹 Obriši</button>
                 </div>
             </div>
 
@@ -81,8 +80,9 @@
                 </div>
             </div>
 
-            <!-- Solve Actions -->
+            <!-- Solve Actions & Undo -->
             <div class="tool-group" style="margin-top: auto;">
+                <button id="btn-undo" class="btn" style="width: 100%; margin-bottom: 0.5rem;" title="Poništi poslednju izmenu (Ctrl+Z)">↩️ Poništi (Undo)</button>
                 <button id="btn-solve" class="btn btn-success" style="width: 100%; font-size: 1.1rem; padding: 0.8rem;">
                     🚀 Pronađi Rešenje (Solve)
                 </button>
