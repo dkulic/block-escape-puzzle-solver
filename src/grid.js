@@ -11,8 +11,10 @@ export const TILE_TYPES = {
 
 export const COLOR_PALETTE = [
     '#e74c3c', // Red
-    '#3498db', // Blue
-    '#2ecc71', // Green
+    '#3498db', // Light Blue
+    '#1d4ed8', // Dark Blue
+    '#2ecc71', // Light Green
+    '#15803d', // Dark Green
     '#f1c40f', // Yellow
     '#9b59b6', // Purple
     '#e67e22', // Orange
@@ -109,9 +111,18 @@ export class GameGrid {
         return this.tiles[y][x];
     }
 
-    setTile(x, y, type, color = null) {
+    setTile(x, y, type, color = null, isToggle = false, isOpen = true) {
         if (this.isValidCoord(x, y)) {
-            this.tiles[y][x] = { type, color: type === TILE_TYPES.GATE ? color : null };
+            if (type === TILE_TYPES.GATE) {
+                this.tiles[y][x] = {
+                    type,
+                    color,
+                    isToggle: !!isToggle,
+                    isOpen: isToggle ? !!isOpen : true
+                };
+            } else {
+                this.tiles[y][x] = { type, color: null };
+            }
         }
     }
 

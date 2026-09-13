@@ -44,11 +44,24 @@
                     <button id="tool-gate" class="btn" title="Colored gate for matching blocks to exit">🚪 Gate</button>
                     <button id="tool-erase" class="btn" title="Erase wall or gate">🧹 Erase</button>
                 </div>
+
+                <div id="gate-options" class="special-options-panel" style="display: none; margin-top: 0.5rem;">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="chk-gate-toggle"> Toggle Gate
+                    </label>
+                    <div id="gate-initial-state-group" class="input-group" style="margin-top: 0.3rem; display: none;">
+                        <label for="select-gate-state">Initial State:</label>
+                        <select id="select-gate-state" style="flex: 1;">
+                            <option value="open">Open</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                    </div>
+                </div>
             </div>
 
             <!-- Color Picker -->
             <div class="tool-group">
-                <div class="section-title">Color Picker (For Gates & Blocks)</div>
+                <div class="section-title">Color Picker (Gates & Blocks)</div>
                 <div id="color-picker" class="color-picker-grid">
                     <!-- Dynamic color swatches -->
                 </div>
@@ -56,7 +69,7 @@
 
             <!-- Block Selector & Creator -->
             <div class="tool-group">
-                <div class="section-title">Add Blocks</div>
+                <div class="section-title">Add & Edit Blocks</div>
                 <div class="input-group" style="width: 100%;">
                     <label for="select-shape" style="width: 70px;">Shape:</label>
                     <select id="select-shape" style="flex: 1; width: auto;">
@@ -71,7 +84,43 @@
                     </select>
                 </div>
 
-                <div class="shape-preview-container">
+                <!-- Special Block Properties -->
+                <div class="input-group" style="width: 100%; margin-top: 0.3rem;">
+                    <label for="select-block-type" style="width: 70px;">Type:</label>
+                    <select id="select-block-type" style="flex: 1; width: auto;">
+                        <option value="normal">Normal</option>
+                        <option value="dual">Dual Color</option>
+                        <option value="locked">Locked</option>
+                        <option value="key">Key Block</option>
+                        <option value="frozen">Frozen Block</option>
+                    </select>
+                </div>
+
+                <!-- Type-specific options -->
+                <div id="dual-color-group" class="special-options-panel" style="display: none; margin-top: 0.3rem;">
+                    <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 0.25rem;">Inner Color:</div>
+                    <div id="inner-color-picker" class="color-picker-grid">
+                        <!-- Dynamic inner color swatches -->
+                    </div>
+                </div>
+
+                <div id="locked-count-group" class="input-group" style="display: none; margin-top: 0.3rem;">
+                    <label for="input-key-count">Required Keys:</label>
+                    <input type="number" id="input-key-count" min="1" max="99" value="1" style="width: 60px;">
+                </div>
+
+                <div id="frozen-count-group" class="input-group" style="display: none; margin-top: 0.3rem;">
+                    <label for="input-freeze-count">Freeze Count:</label>
+                    <input type="number" id="input-freeze-count" min="1" max="99" value="1" style="width: 60px;">
+                </div>
+
+                <div class="input-group" style="margin-top: 0.3rem;">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="chk-priority-block"> ⭐ Priority Flag
+                    </label>
+                </div>
+
+                <div class="shape-preview-container" style="margin-top: 0.5rem;">
                     <div id="shape-preview" class="shape-preview"></div>
                     <button id="btn-rotate-shape" class="btn" style="width: 100%;">🔄 Rotate (90°)</button>
                 </div>
