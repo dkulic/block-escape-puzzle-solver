@@ -1,14 +1,83 @@
 // src/solver.js
-// BFS Puzzle Solver for Color Block Escape with Special Blocks & Toggle Gates
+// Optimized BFS Puzzle Solver for Color Block Escape with Special Blocks & Toggle Gates
 
 import { getShapeCells, BLOCK_TYPES } from './shapes.js';
 import { TILE_TYPES } from './grid.js';
+
+class MinHeap {
+    constructor() {
+        this.heap = [];
+    }
+
+    push(node) {
+        this.heap.push(node);
+        this._bubbleUp(this.heap.length - 1);
+    }
+
+    pop() {
+        if (this.heap.length === 0) return null;
+        if (this.heap.length === 1) return this.heap.pop();
+        const top = this.heap[0];
+        this.heap[0] = this.heap.pop();
+        this._sinkDown(0);
+        return top;
+    }
+
+    size() {
+        return this.heap.length;
+    }
+
+    _compare(a, b) {
+        if (a.priorityExitStep !== b.priorityExitStep) {
+            return a.priorityExitStep - b.priorityExitStep;
+        }
+        return a.totalSteps - b.totalSteps;
+    }
+
+    _bubbleUp(idx) {
+        while (idx > 0) {
+            const parentIdx = (idx - 1) >> 1;
+            if (this._compare(this.heap[idx], this.heap[parentIdx]) < 0) {
+                const temp = this.heap[idx];
+                this.heap[idx] = this.heap[parentIdx];
+                this.heap[parentIdx] = temp;
+                idx = parentIdx;
+            } else {
+                break;
+            }
+        }
+    }
+
+    _sinkDown(idx) {
+        const length = this.heap.length;
+        while (true) {
+            let leftIdx = (idx << 1) + 1;
+            let rightIdx = leftIdx + 1;
+            let smallest = idx;
+
+            if (leftIdx < length && this._compare(this.heap[leftIdx], this.heap[smallest]) < 0) {
+                smallest = leftIdx;
+            }
+            if (rightIdx < length && this._compare(this.heap[rightIdx], this.heap[smallest]) < 0) {
+                smallest = rightIdx;
+            }
+
+            if (smallest !== idx) {
+                const temp = this.heap[idx];
+                this.heap[idx] = this.heap[smallest];
+                this.heap[smallest] = temp;
+                idx = smallest;
+            } else {
+                break;
+            }
+        }
+    }
+}
 
 export class PuzzleSolver {
     constructor(gridData, blocksData) {
         this.cols = gridData.cols;
         this.rows = gridData.rows;
-        // Deep clone initial tiles so solver can track gate toggle states dynamically
         this.initialTiles = gridData.tiles.map(row => row.map(tile => ({ ...tile })));
         this.initialBlocks = blocksData.map(b => ({
             id: b.id,
@@ -23,33 +92,25 @@ export class PuzzleSolver {
             freezeCount: b.freezeCount || 0,
             isPriority: !!b.isPriority
         }));
-    }
 
-    /**
-     * Helper to get effective tile properties for current state gates map.
-     */
-    getTile(tiles, x, y) {
-        if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) {
-            return { type: TILE_TYPES.VOID, color: null };
+        // Find toggle gate positions once for fast state serialization
+        this.toggleGateCoords = [];
+        for (let r = 0; r < this.rows; r++) {
+            for (let c = 0; c < this.cols; c++) {
+                if (this.initialTiles[r][c].type === TILE_TYPES.GATE && this.initialTiles[r][c].isToggle) {
+                    this.toggleGateCoords.push([c, r]);
+                }
+            }
         }
-        return tiles[y][x];
     }
 
-    /**
-     * Checks if a cell is playable inside board bounds.
-     */
     isPlayableCell(tiles, gx, gy) {
         if (gx < 0 || gx >= this.cols || gy < 0 || gy >= this.rows) {
             return false;
         }
-        const tile = tiles[gy][gx];
-        return tile.type !== TILE_TYPES.VOID;
+        return tiles[gy][gx].type !== TILE_TYPES.VOID;
     }
 
-    /**
-     * Checks whether a block can legally occupy a given position.
-     * Closed gates or mismatched gate colors act as impassable.
-     */
     canOccupy(block, bx, by, tiles) {
         const shapeCells = getShapeCells(block.type, block.rotation);
         for (const [cx, cy] of shapeCells) {
@@ -66,7 +127,7 @@ export class PuzzleSolver {
             }
             if (tile.type === TILE_TYPES.GATE) {
                 if (tile.isToggle && !tile.isOpen) {
-                    return false; // Closed toggle gate acts as wall
+                    return false;
                 }
                 if (tile.color !== block.color) {
                     return false;
@@ -76,9 +137,6 @@ export class PuzzleSolver {
         return true;
     }
 
-    /**
-     * Checks if a block can exit through matching open gate in direction (dx, dy).
-     */
     canExit(block, bx, by, dx, dy, occupiedGrid, tiles) {
         const shapeCells = getShapeCells(block.type, block.rotation);
         let currentX = bx;
@@ -134,10 +192,6 @@ export class PuzzleSolver {
         }
     }
 
-    /**
-     * Checks if a block is currently movable.
-     * Locked blocks (keyCount > 0) and Frozen blocks (freezeCount > 0) cannot move.
-     */
     isMovable(block) {
         if (block.blockType === BLOCK_TYPES.LOCKED && block.keyCount > 0) {
             return false;
@@ -148,14 +202,7 @@ export class PuzzleSolver {
         return true;
     }
 
-    /**
-     * Applies an elimination event (either outer peel or full block exit).
-     * - Toggles toggle gates
-     * - Decrements freeze counts on frozen blocks
-     * - If key block eliminated, decrements key counts on locked blocks
-     */
     applyEliminationEvent(blocks, tiles, eliminatedBlock) {
-        // Toggle toggle gates
         const newTiles = tiles.map(row => row.map(tile => {
             if (tile.type === TILE_TYPES.GATE && tile.isToggle) {
                 return { ...tile, isOpen: !tile.isOpen };
@@ -165,14 +212,11 @@ export class PuzzleSolver {
 
         const isKey = eliminatedBlock.blockType === BLOCK_TYPES.KEY;
 
-        // Update blocks
         const newBlocks = blocks.map(b => {
             let nb = { ...b };
-            // Decrement freezeCount
             if (nb.blockType === BLOCK_TYPES.FROZEN && nb.freezeCount > 0) {
                 nb.freezeCount = nb.freezeCount - 1;
             }
-            // Decrement keyCount if key block eliminated
             if (isKey && nb.blockType === BLOCK_TYPES.LOCKED && nb.keyCount > 0) {
                 nb.keyCount = nb.keyCount - 1;
             }
@@ -183,19 +227,16 @@ export class PuzzleSolver {
     }
 
     serializeState(blocks, tiles) {
-        const blocksKey = blocks
-            .slice()
-            .sort((a, b) => a.id - b.id)
-            .map(b => `${b.id}:${b.x},${b.y},${b.blockType},${b.color},${b.keyCount},${b.freezeCount}`)
-            .join(';');
+        let blocksKey = '';
+        for (let i = 0; i < blocks.length; i++) {
+            const b = blocks[i];
+            blocksKey += `${b.id}:${b.x},${b.y},${b.blockType},${b.color},${b.keyCount},${b.freezeCount};`;
+        }
 
         let gatesKey = '';
-        for (let r = 0; r < this.rows; r++) {
-            for (let c = 0; c < this.cols; c++) {
-                if (tiles[r][c].type === TILE_TYPES.GATE && tiles[r][c].isToggle) {
-                    gatesKey += `${c},${r}:${tiles[r][c].isOpen ? 1 : 0};`;
-                }
-            }
+        for (let i = 0; i < this.toggleGateCoords.length; i++) {
+            const [c, r] = this.toggleGateCoords[i];
+            gatesKey += `${tiles[r][c].isOpen ? 1 : 0}`;
         }
 
         return `${blocksKey}|${gatesKey}`;
@@ -231,10 +272,24 @@ export class PuzzleSolver {
         return false;
     }
 
+    reconstructHistory(endNode) {
+        const history = [];
+        let curr = endNode;
+        while (curr && curr.move) {
+            history.unshift({
+                blocks: curr.blocks,
+                tiles: curr.tiles,
+                move: curr.move
+            });
+            curr = curr.parent;
+        }
+        return history;
+    }
+
     /**
-     * Solves the puzzle using BFS with priority queue to minimize moves before priority block exit.
+     * Solves the puzzle using MinHeap BFS.
      */
-    solve(maxStates = 150000, progressCallback = null) {
+    solve(maxStates = 250000, progressCallback = null) {
         const startBlocks = this.initialBlocks.map(b => ({ ...b }));
         const startTiles = this.initialTiles.map(row => row.map(t => ({ ...t })));
 
@@ -246,15 +301,16 @@ export class PuzzleSolver {
 
         const priorityBlockId = (startBlocks.find(b => b.isPriority) || {}).id || null;
 
-        // Priority Queue implementation (or layered BFS queues)
-        // Primary sort: priorityExitStep (infinity if not exited), Secondary sort: totalSteps
-        const queue = [{
+        const heap = new MinHeap();
+        const startNode = {
             blocks: startBlocks,
             tiles: startTiles,
-            history: [],
+            move: null,
+            parent: null,
             priorityExitStep: priorityBlockId === null ? 0 : Infinity,
             totalSteps: 0
-        }];
+        };
+        heap.push(startNode);
 
         const visited = new Set();
         visited.add(this.serializeState(startBlocks, startTiles));
@@ -268,21 +324,13 @@ export class PuzzleSolver {
 
         let exploredCount = 0;
 
-        while (queue.length > 0) {
-            // Find minimum cost element in queue (Priority Queue pop)
-            let bestIdx = 0;
-            for (let i = 1; i < queue.length; i++) {
-                if (queue[i].priorityExitStep < queue[bestIdx].priorityExitStep ||
-                   (queue[i].priorityExitStep === queue[bestIdx].priorityExitStep && queue[i].totalSteps < queue[bestIdx].totalSteps)) {
-                    bestIdx = i;
-                }
-            }
-            const current = queue.splice(bestIdx, 1)[0];
-            const { blocks, tiles, history, priorityExitStep, totalSteps } = current;
+        while (heap.size() > 0) {
+            const current = heap.pop();
+            const { blocks, tiles, priorityExitStep, totalSteps } = current;
 
             exploredCount++;
 
-            if (progressCallback && exploredCount % 1000 === 0) {
+            if (progressCallback && exploredCount % 2000 === 0) {
                 progressCallback(exploredCount);
             }
 
@@ -290,9 +338,13 @@ export class PuzzleSolver {
                 return { success: false, error: 'Search limit exceeded. Puzzle might be too complex or unsolvable.' };
             }
 
-            // Check if solved (all blocks exited)
+            // Target reached: all blocks exited!
             if (blocks.length === 0) {
-                return { success: true, steps: history, statesExplored: exploredCount };
+                return {
+                    success: true,
+                    steps: this.reconstructHistory(current),
+                    statesExplored: exploredCount
+                };
             }
 
             const occupiedGrid = this.buildOccupiedGrid(blocks);
@@ -305,7 +357,7 @@ export class PuzzleSolver {
                 }
 
                 for (const dir of directions) {
-                    // 1. Try moving inside board
+                    // 1. Move inside board
                     const nx = block.x + dir.dx;
                     const ny = block.y + dir.dy;
 
@@ -314,30 +366,23 @@ export class PuzzleSolver {
                         const key = this.serializeState(newBlocks, tiles);
                         if (!visited.has(key)) {
                             visited.add(key);
-                            queue.push({
+                            heap.push({
                                 blocks: newBlocks,
                                 tiles: tiles,
-                                history: [
-                                    ...history,
-                                    {
-                                        blocks: newBlocks,
-                                        tiles: tiles,
-                                        move: { blockId: block.id, dir: dir.name, exited: false, color: block.color }
-                                    }
-                                ],
+                                move: { blockId: block.id, dir: dir.name, exited: false, color: block.color },
+                                parent: current,
                                 priorityExitStep: priorityExitStep,
                                 totalSteps: totalSteps + 1
                             });
                         }
                     }
 
-                    // 2. Try exiting through gate
+                    // 2. Exit through gate
                     if (this.canExit(block, block.x, block.y, dir.dx, dir.dy, occupiedGrid, tiles)) {
                         let newBlocks;
                         let newPriorityExitStep = priorityExitStep;
 
                         if (block.blockType === BLOCK_TYPES.DUAL) {
-                            // Dual color block outer peel: transforms to normal block with inner color at same position
                             const peeledBlock = {
                                 ...block,
                                 blockType: BLOCK_TYPES.NORMAL,
@@ -356,23 +401,16 @@ export class PuzzleSolver {
                             const key = this.serializeState(newBlocks, newTiles);
                             if (!visited.has(key)) {
                                 visited.add(key);
-                                queue.push({
+                                heap.push({
                                     blocks: newBlocks,
                                     tiles: newTiles,
-                                    history: [
-                                        ...history,
-                                        {
-                                            blocks: newBlocks,
-                                            tiles: newTiles,
-                                            move: { blockId: block.id, dir: dir.name, exited: false, peeled: true, color: block.color, newColor: peeledBlock.color }
-                                        }
-                                    ],
+                                    move: { blockId: block.id, dir: dir.name, exited: false, peeled: true, color: block.color, newColor: peeledBlock.color },
+                                    parent: current,
                                     priorityExitStep: newPriorityExitStep,
                                     totalSteps: totalSteps + 1
                                 });
                             }
                         } else {
-                            // Complete block exit from board
                             if (block.id === priorityBlockId && priorityExitStep === Infinity) {
                                 newPriorityExitStep = totalSteps + 1;
                             }
@@ -385,17 +423,11 @@ export class PuzzleSolver {
                             const key = this.serializeState(newBlocks, newTiles);
                             if (!visited.has(key)) {
                                 visited.add(key);
-                                queue.push({
+                                heap.push({
                                     blocks: newBlocks,
                                     tiles: newTiles,
-                                    history: [
-                                        ...history,
-                                        {
-                                            blocks: newBlocks,
-                                            tiles: newTiles,
-                                            move: { blockId: block.id, dir: dir.name, exited: true, color: block.color }
-                                        }
-                                    ],
+                                    move: { blockId: block.id, dir: dir.name, exited: true, color: block.color },
+                                    parent: current,
                                     priorityExitStep: newPriorityExitStep,
                                     totalSteps: totalSteps + 1
                                 });
