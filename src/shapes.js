@@ -23,6 +23,14 @@ export const SHAPE_LABELS = {
     [SHAPE_TYPES.PLUS_5]: 'Plus (+ 5)'
 };
 
+export const BLOCK_TYPES = {
+    NORMAL: 'normal',
+    DUAL: 'dual',
+    LOCKED: 'locked',
+    KEY: 'key',
+    FROZEN: 'frozen'
+};
+
 // Base coordinate definitions for each shape at rotation 0
 const BASE_SHAPES = {
     [SHAPE_TYPES.SINGLE_1]: [[0, 0]],

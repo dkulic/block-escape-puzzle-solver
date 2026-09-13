@@ -2,7 +2,7 @@
 // Main application logic for Color Block Escape Solver
 
 import { GameGrid, TILE_TYPES, COLOR_PALETTE } from './grid.js';
-import { SHAPE_TYPES, SHAPE_LABELS, getShapeCells, getShapeDimensions } from './shapes.js';
+import { SHAPE_TYPES, SHAPE_LABELS, BLOCK_TYPES, getShapeCells, getShapeDimensions } from './shapes.js';
 import { PuzzleSolver } from './solver.js';
 
 class ColorBlockApp {
@@ -15,11 +15,24 @@ class ColorBlockApp {
         this.activeGridTool = 'wall';
         this.selectedColor = COLOR_PALETTE[0];
 
+        // Gate options
+        this.gateIsToggle = false;
+        this.gateInitialIsOpen = true;
+
         // Block creation state
         this.selectedShapeType = SHAPE_TYPES.SINGLE_1;
         this.selectedShapeRotation = 0;
+        this.selectedBlockType = BLOCK_TYPES.NORMAL;
+        this.selectedInnerColor = COLOR_PALETTE[1];
+        this.selectedKeyCount = 1;
+        this.selectedFreezeCount = 1;
+        this.selectedIsPriority = false;
 
-        // Blocks list: [{ id, type, rotation, color, x, y }]
+        // Selected elements in editor
+        this.selectedBlockId = null;
+        this.selectedGateCoord = null; // { x, y }
+
+        // Blocks list: [{ id, type, rotation, color, x, y, blockType, innerColor, keyCount, freezeCount, isPriority }]
         this.blocks = [];
         this.nextBlockId = 1;
 
@@ -28,16 +41,14 @@ class ColorBlockApp {
 
         // Player / Solution state
         this.isSolving = false;
-        this.solutionSteps = []; // [{ blocks, move }]
+        this.solutionSteps = []; // [{ blocks, tiles, move }]
         this.currentStepIndex = 0;
         this.mode = 'editor'; // 'editor' | 'player'
 
-        // Selection / Dragging state in Editor
-        this.selectedBlockId = null;
         this.isMouseDown = false;
 
         this.initDOM();
-        this.initColorPicker();
+        this.initColorPickers();
         this.renderShapePreview();
         this.renderBoard();
         this.attachEventListeners();
@@ -46,6 +57,7 @@ class ColorBlockApp {
     initDOM() {
         this.gridBoardEl = document.getElementById('grid-board');
         this.colorPickerEl = document.getElementById('color-picker');
+        this.innerColorPickerEl = document.getElementById('inner-color-picker');
         this.shapeSelectEl = document.getElementById('select-shape');
         this.shapePreviewEl = document.getElementById('shape-preview');
         this.playerControlsEl = document.getElementById('player-controls');
@@ -56,9 +68,25 @@ class ColorBlockApp {
         this.stepCounterEl = document.getElementById('step-counter');
         this.moveDescEl = document.getElementById('move-description');
         this.btnUndo = document.getElementById('btn-undo');
+
+        // Gate options DOM
+        this.gateOptionsEl = document.getElementById('gate-options');
+        this.chkGateToggleEl = document.getElementById('chk-gate-toggle');
+        this.gateInitialGroupEl = document.getElementById('gate-initial-state-group');
+        this.selectGateStateEl = document.getElementById('select-gate-state');
+
+        // Block type DOM
+        this.selectBlockTypeEl = document.getElementById('select-block-type');
+        this.dualColorGroupEl = document.getElementById('dual-color-group');
+        this.lockedCountGroupEl = document.getElementById('locked-count-group');
+        this.frozenCountGroupEl = document.getElementById('frozen-count-group');
+        this.inputKeyCountEl = document.getElementById('input-key-count');
+        this.inputFreezeCountEl = document.getElementById('input-freeze-count');
+        this.chkPriorityBlockEl = document.getElementById('chk-priority-block');
     }
 
-    initColorPicker() {
+    initColorPickers() {
+        // Outer color picker
         this.colorPickerEl.innerHTML = '';
         COLOR_PALETTE.forEach((color) => {
             const swatch = document.createElement('div');
@@ -67,12 +95,59 @@ class ColorBlockApp {
             swatch.dataset.color = color;
             swatch.addEventListener('click', () => {
                 this.selectedColor = color;
-                document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+                this.colorPickerEl.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
                 swatch.classList.add('selected');
-                this.renderShapePreview();
+                this.onOuterColorChanged(color);
             });
             this.colorPickerEl.appendChild(swatch);
         });
+
+        // Inner color picker
+        this.innerColorPickerEl.innerHTML = '';
+        COLOR_PALETTE.forEach((color) => {
+            const swatch = document.createElement('div');
+            swatch.className = `color-swatch ${color === this.selectedInnerColor ? 'selected' : ''}`;
+            swatch.style.backgroundColor = color;
+            swatch.dataset.color = color;
+            swatch.addEventListener('click', () => {
+                this.selectedInnerColor = color;
+                this.innerColorPickerEl.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+                swatch.classList.add('selected');
+                this.onInnerColorChanged(color);
+            });
+            this.innerColorPickerEl.appendChild(swatch);
+        });
+    }
+
+    onOuterColorChanged(color) {
+        if (this.selectedBlockId !== null) {
+            const block = this.blocks.find(b => b.id === this.selectedBlockId);
+            if (block) {
+                this.saveUndoState();
+                block.color = color;
+            }
+        } else if (this.selectedGateCoord !== null) {
+            const { x, y } = this.selectedGateCoord;
+            const tile = this.grid.getRawTile(x, y);
+            if (tile.type === TILE_TYPES.GATE) {
+                this.saveUndoState();
+                tile.color = color;
+            }
+        }
+        this.renderShapePreview();
+        this.renderBoard();
+    }
+
+    onInnerColorChanged(color) {
+        if (this.selectedBlockId !== null) {
+            const block = this.blocks.find(b => b.id === this.selectedBlockId);
+            if (block && block.blockType === BLOCK_TYPES.DUAL) {
+                this.saveUndoState();
+                block.innerColor = color;
+            }
+        }
+        this.renderShapePreview();
+        this.renderBoard();
     }
 
     renderShapePreview() {
@@ -89,9 +164,18 @@ class ColorBlockApp {
             for (let c = 0; c < width; c++) {
                 const cell = document.createElement('div');
                 cell.className = 'shape-cell';
+                cell.style.position = 'relative';
+
                 if (gridMap.has(`${c},${r}`)) {
                     cell.style.backgroundColor = this.selectedColor;
                     cell.style.border = '1px solid rgba(255,255,255,0.4)';
+
+                    if (this.selectedBlockType === BLOCK_TYPES.DUAL) {
+                        const innerCross = document.createElement('div');
+                        innerCross.className = 'block-cell-inner-cross';
+                        innerCross.style.backgroundColor = this.selectedInnerColor;
+                        cell.appendChild(innerCross);
+                    }
                 } else {
                     cell.style.backgroundColor = 'transparent';
                 }
@@ -107,6 +191,7 @@ class ColorBlockApp {
             rows: this.rows,
             blocks: JSON.parse(JSON.stringify(this.blocks)),
             selectedBlockId: this.selectedBlockId,
+            selectedGateCoord: this.selectedGateCoord ? { ...this.selectedGateCoord } : null,
             nextBlockId: this.nextBlockId
         });
         if (this.undoStack.length > 50) {
@@ -124,9 +209,9 @@ class ColorBlockApp {
         this.grid.tiles = JSON.parse(JSON.stringify(lastState.gridRawTiles));
         this.blocks = JSON.parse(JSON.stringify(lastState.blocks));
         this.selectedBlockId = lastState.selectedBlockId;
+        this.selectedGateCoord = lastState.selectedGateCoord;
         this.nextBlockId = lastState.nextBlockId;
 
-        // Update inputs
         const colsInput = document.getElementById('input-cols');
         const rowsInput = document.getElementById('input-rows');
         if (colsInput) colsInput.value = this.cols;
@@ -182,19 +267,27 @@ class ColorBlockApp {
         this.gridBoardEl.style.gridTemplateColumns = `repeat(${this.cols}, var(--cell-size))`;
         this.gridBoardEl.style.gridTemplateRows = `repeat(${this.rows}, var(--cell-size))`;
 
-        const effectiveTiles = this.grid.getEffectiveTiles();
+        const currentTiles = (this.mode === 'player' && this.solutionSteps.length > 0)
+            ? this.solutionSteps[this.currentStepIndex].tiles
+            : this.grid.getEffectiveTiles();
 
         // Render Grid Cells
         for (let r = 0; r < this.rows; r++) {
             for (let c = 0; c < this.cols; c++) {
-                const tile = effectiveTiles[r][c];
+                const tile = currentTiles[r][c];
                 const cell = document.createElement('div');
                 cell.className = `grid-cell tile-${tile.type}`;
                 cell.dataset.x = c;
                 cell.dataset.y = r;
 
-                if (tile.type === TILE_TYPES.GATE && tile.color) {
-                    cell.style.color = tile.color;
+                if (tile.type === TILE_TYPES.GATE) {
+                    cell.style.color = tile.color || '#3b82f6';
+                    if (tile.isToggle) {
+                        cell.classList.add('gate-toggle');
+                    }
+                    if (tile.isOpen === false) {
+                        cell.classList.add('gate-closed');
+                    }
                 }
 
                 if (this.mode === 'editor') {
@@ -204,7 +297,7 @@ class ColorBlockApp {
                         this.saveUndoState();
                         this.handleCellClick(c, r);
                     });
-                    cell.addEventListener('mouseenter', (e) => {
+                    cell.addEventListener('mouseenter', () => {
                         if (this.isMouseDown) {
                             this.handleCellClick(c, r);
                         }
@@ -227,16 +320,26 @@ class ColorBlockApp {
 
     renderBlock(block) {
         const shapeCells = getShapeCells(block.type, block.rotation);
+        const { width, height } = getShapeDimensions(block.type, block.rotation);
         const blockEl = document.createElement('div');
         blockEl.className = 'block-element';
         blockEl.dataset.id = block.id;
 
         const cellSet = new Set(shapeCells.map(([cx, cy]) => `${cx},${cy}`));
 
+        // Identify center cell for icon/badge rendering
+        const centerCx = Math.floor((width - 1) / 2);
+        const centerCy = Math.floor((height - 1) / 2);
+        let centerCellCoords = shapeCells.find(([cx, cy]) => cx === centerCx && cy === centerCy) || shapeCells[0];
+
         shapeCells.forEach(([cx, cy], idx) => {
             const cellEl = document.createElement('div');
             cellEl.className = 'block-cell';
-            const cellX = (block.x + cx) * 42; // cell-size 40px + 2px gap
+            if (block.blockType === BLOCK_TYPES.FROZEN && block.freezeCount > 0) {
+                cellEl.classList.add('frozen-cell');
+            }
+
+            const cellX = (block.x + cx) * 42;
             const cellY = (block.y + cy) * 42;
             cellEl.style.left = `${cellX}px`;
             cellEl.style.top = `${cellY}px`;
@@ -258,11 +361,39 @@ class ColorBlockApp {
             cellEl.style.borderBottomRightRadius = (!hasBottom && !hasRight) ? '6px' : '0px';
             cellEl.style.borderBottomLeftRadius = (!hasBottom && !hasLeft) ? '6px' : '0px';
 
-            if (idx === 0) {
-                const labelEl = document.createElement('span');
-                labelEl.className = 'block-id-label';
-                labelEl.textContent = `#${block.id}`;
-                cellEl.appendChild(labelEl);
+            // Dual color inner cross pattern on every cell
+            if (block.blockType === BLOCK_TYPES.DUAL && block.innerColor) {
+                const innerCross = document.createElement('div');
+                innerCross.className = 'block-cell-inner-cross';
+                innerCross.style.backgroundColor = block.innerColor;
+                cellEl.appendChild(innerCross);
+            }
+
+            // Top-left priority star overlay
+            if (idx === 0 && block.isPriority) {
+                const starEl = document.createElement('span');
+                starEl.className = 'block-priority-star';
+                starEl.textContent = '⭐';
+                cellEl.appendChild(starEl);
+            }
+
+            // Center cell badge (Locked padlock, Key, Frozen ice count)
+            if (cx === centerCellCoords[0] && cy === centerCellCoords[1]) {
+                let badgeText = null;
+                if (block.blockType === BLOCK_TYPES.LOCKED) {
+                    badgeText = `🔒 ${block.keyCount}`;
+                } else if (block.blockType === BLOCK_TYPES.KEY) {
+                    badgeText = `🔑`;
+                } else if (block.blockType === BLOCK_TYPES.FROZEN) {
+                    badgeText = `🧊 ${block.freezeCount}`;
+                }
+
+                if (badgeText) {
+                    const badgeEl = document.createElement('div');
+                    badgeEl.className = 'block-center-badge';
+                    badgeEl.textContent = badgeText;
+                    cellEl.appendChild(badgeEl);
+                }
             }
 
             if (block.id === this.selectedBlockId && this.mode === 'editor') {
@@ -280,8 +411,7 @@ class ColorBlockApp {
                 e.stopPropagation();
                 e.preventDefault();
 
-                this.selectedBlockId = block.id;
-                this.renderBoard();
+                this.selectBlock(block.id);
 
                 const startMouseX = e.clientX;
                 const startMouseY = e.clientY;
@@ -356,6 +486,30 @@ class ColorBlockApp {
         this.gridBoardEl.appendChild(blockEl);
     }
 
+    selectBlock(blockId) {
+        this.selectedBlockId = blockId;
+        this.selectedGateCoord = null;
+        const block = this.blocks.find(b => b.id === blockId);
+        if (block) {
+            this.selectedColor = block.color;
+            this.selectedBlockType = block.blockType || BLOCK_TYPES.NORMAL;
+            if (block.innerColor) this.selectedInnerColor = block.innerColor;
+            if (block.keyCount !== undefined) this.selectedKeyCount = block.keyCount;
+            if (block.freezeCount !== undefined) this.selectedFreezeCount = block.freezeCount;
+            this.selectedIsPriority = !!block.isPriority;
+
+            // Sync UI inputs
+            this.selectBlockTypeEl.value = this.selectedBlockType;
+            this.inputKeyCountEl.value = this.selectedKeyCount;
+            this.inputFreezeCountEl.value = this.selectedFreezeCount;
+            this.chkPriorityBlockEl.checked = this.selectedIsPriority;
+
+            this.updateSpecialPanelsVisibility();
+            this.initColorPickers();
+        }
+        this.renderBoard();
+    }
+
     updateDragPreview(block, candX, candY, isValid, isOffBoard) {
         const blockEl = this.gridBoardEl.querySelector(`.block-element[data-id="${block.id}"]`);
         if (!blockEl) return;
@@ -387,12 +541,45 @@ class ColorBlockApp {
 
         if (this.activeGridTool === 'wall') {
             this.grid.setTile(x, y, TILE_TYPES.WALL);
+            this.selectedGateCoord = null;
         } else if (this.activeGridTool === 'gate') {
-            this.grid.setTile(x, y, TILE_TYPES.GATE, this.selectedColor);
+            const raw = this.grid.getRawTile(x, y);
+            if (raw.type === TILE_TYPES.GATE) {
+                // Select existing gate for editing
+                this.selectedGateCoord = { x, y };
+                this.selectedColor = raw.color || this.selectedColor;
+                this.gateIsToggle = !!raw.isToggle;
+                this.gateInitialIsOpen = raw.isOpen !== false;
+                this.chkGateToggleEl.checked = this.gateIsToggle;
+                this.selectGateStateEl.value = this.gateInitialIsOpen ? 'open' : 'closed';
+                this.updateSpecialPanelsVisibility();
+            } else {
+                // Place new gate
+                this.grid.setTile(x, y, TILE_TYPES.GATE, this.selectedColor, this.gateIsToggle, this.gateInitialIsOpen);
+                this.selectedGateCoord = null;
+            }
         } else if (this.activeGridTool === 'erase') {
             this.grid.setTile(x, y, TILE_TYPES.EMPTY);
+            this.selectedGateCoord = null;
         }
+        this.selectedBlockId = null;
         this.renderBoard();
+    }
+
+    updateSpecialPanelsVisibility() {
+        // Gate options panel
+        if (this.activeGridTool === 'gate' || this.selectedGateCoord !== null) {
+            this.gateOptionsEl.style.display = 'block';
+            this.gateInitialGroupEl.style.display = this.chkGateToggleEl.checked ? 'flex' : 'none';
+        } else {
+            this.gateOptionsEl.style.display = 'none';
+        }
+
+        // Block type options
+        const type = this.selectBlockTypeEl.value;
+        this.dualColorGroupEl.style.display = type === BLOCK_TYPES.DUAL ? 'block' : 'none';
+        this.lockedCountGroupEl.style.display = type === BLOCK_TYPES.LOCKED ? 'flex' : 'none';
+        this.frozenCountGroupEl.style.display = type === BLOCK_TYPES.FROZEN ? 'flex' : 'none';
     }
 
     attachEventListeners() {
@@ -400,7 +587,7 @@ class ColorBlockApp {
             this.isMouseDown = false;
         });
 
-        // Grid Tool Selection Buttons
+        // Grid Tool Selection
         ['wall', 'gate', 'erase'].forEach(tool => {
             const btn = document.getElementById(`tool-${tool}`);
             if (btn) {
@@ -410,7 +597,39 @@ class ColorBlockApp {
                     });
                     btn.classList.add('active');
                     this.activeGridTool = tool;
+                    this.selectedBlockId = null;
+                    this.selectedGateCoord = null;
+                    this.updateSpecialPanelsVisibility();
                 });
+            }
+        });
+
+        // Gate Options
+        this.chkGateToggleEl.addEventListener('change', (e) => {
+            this.gateIsToggle = e.target.checked;
+            this.updateSpecialPanelsVisibility();
+            if (this.selectedGateCoord) {
+                const { x, y } = this.selectedGateCoord;
+                const tile = this.grid.getRawTile(x, y);
+                if (tile.type === TILE_TYPES.GATE) {
+                    this.saveUndoState();
+                    tile.isToggle = this.gateIsToggle;
+                    tile.isOpen = this.gateIsToggle ? (this.selectGateStateEl.value === 'open') : true;
+                    this.renderBoard();
+                }
+            }
+        });
+
+        this.selectGateStateEl.addEventListener('change', (e) => {
+            this.gateInitialIsOpen = e.target.value === 'open';
+            if (this.selectedGateCoord) {
+                const { x, y } = this.selectedGateCoord;
+                const tile = this.grid.getRawTile(x, y);
+                if (tile.type === TILE_TYPES.GATE) {
+                    this.saveUndoState();
+                    tile.isOpen = this.gateInitialIsOpen;
+                    this.renderBoard();
+                }
             }
         });
 
@@ -418,6 +637,72 @@ class ColorBlockApp {
         this.shapeSelectEl.addEventListener('change', (e) => {
             this.selectedShapeType = e.target.value;
             this.renderShapePreview();
+        });
+
+        // Block Type Selector
+        this.selectBlockTypeEl.addEventListener('change', (e) => {
+            this.selectedBlockType = e.target.value;
+            this.updateSpecialPanelsVisibility();
+            this.renderShapePreview();
+
+            if (this.selectedBlockId !== null) {
+                const block = this.blocks.find(b => b.id === this.selectedBlockId);
+                if (block) {
+                    this.saveUndoState();
+                    block.blockType = this.selectedBlockType;
+                    block.innerColor = this.selectedInnerColor;
+                    block.keyCount = parseInt(this.inputKeyCountEl.value, 10) || 1;
+                    block.freezeCount = parseInt(this.inputFreezeCountEl.value, 10) || 1;
+                    this.renderBoard();
+                }
+            }
+        });
+
+        // Counter inputs
+        this.inputKeyCountEl.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value, 10) || 1;
+            this.selectedKeyCount = val;
+            if (this.selectedBlockId !== null) {
+                const block = this.blocks.find(b => b.id === this.selectedBlockId);
+                if (block && block.blockType === BLOCK_TYPES.LOCKED) {
+                    this.saveUndoState();
+                    block.keyCount = val;
+                    this.renderBoard();
+                }
+            }
+        });
+
+        this.inputFreezeCountEl.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value, 10) || 1;
+            this.selectedFreezeCount = val;
+            if (this.selectedBlockId !== null) {
+                const block = this.blocks.find(b => b.id === this.selectedBlockId);
+                if (block && block.blockType === BLOCK_TYPES.FROZEN) {
+                    this.saveUndoState();
+                    block.freezeCount = val;
+                    this.renderBoard();
+                }
+            }
+        });
+
+        // Priority Flag Checkbox
+        this.chkPriorityBlockEl.addEventListener('change', (e) => {
+            const isChecked = e.target.checked;
+            this.selectedIsPriority = isChecked;
+
+            if (isChecked) {
+                // Ensure only 1 priority block exists
+                this.blocks.forEach(b => { b.isPriority = false; });
+            }
+
+            if (this.selectedBlockId !== null) {
+                const block = this.blocks.find(b => b.id === this.selectedBlockId);
+                if (block) {
+                    this.saveUndoState();
+                    block.isPriority = isChecked;
+                }
+            }
+            this.renderBoard();
         });
 
         document.getElementById('btn-rotate-shape').addEventListener('click', () => {
@@ -430,7 +715,7 @@ class ColorBlockApp {
                         block.rotation = newRot;
                         this.renderBoard();
                     } else {
-                        alert('Block rotation is not possible at the current position as it overlaps with a wall or another block.');
+                        alert('Block rotation is not possible at the current position.');
                     }
                     return;
                 }
@@ -450,20 +735,30 @@ class ColorBlockApp {
             }
 
             this.saveUndoState();
+
+            if (this.selectedIsPriority) {
+                this.blocks.forEach(b => { b.isPriority = false; });
+            }
+
             const newBlock = {
                 id: this.nextBlockId++,
                 type: this.selectedShapeType,
                 rotation: this.selectedShapeRotation,
                 color: this.selectedColor,
                 x: pos.x,
-                y: pos.y
+                y: pos.y,
+                blockType: this.selectedBlockType,
+                innerColor: this.selectedInnerColor,
+                keyCount: parseInt(this.inputKeyCountEl.value, 10) || 1,
+                freezeCount: parseInt(this.inputFreezeCountEl.value, 10) || 1,
+                isPriority: this.selectedIsPriority
             };
             this.blocks.push(newBlock);
-            this.selectedBlockId = newBlock.id;
+            this.selectedBlockId = null;
             this.renderBoard();
         });
 
-        // Resize Grid Button
+        // Resize Grid
         document.getElementById('btn-resize-grid').addEventListener('click', () => {
             const cols = parseInt(document.getElementById('input-cols').value, 10);
             const rows = parseInt(document.getElementById('input-rows').value, 10);
@@ -476,32 +771,32 @@ class ColorBlockApp {
             }
         });
 
-        // Undo Button
+        // Undo
         if (this.btnUndo) {
             this.btnUndo.addEventListener('click', () => {
                 this.undo();
             });
         }
 
-        // Clear Map Button
+        // Clear Map
         document.getElementById('btn-clear').addEventListener('click', () => {
             if (confirm('Are you sure you want to clear the entire map and all blocks?')) {
                 this.saveUndoState();
                 this.grid = new GameGrid(this.cols, this.rows);
                 this.blocks = [];
                 this.selectedBlockId = null;
-                this.resetControls();
+                this.selectedGateCoord = null;
                 this.switchMode('editor');
                 this.renderBoard();
             }
         });
 
-        // Solve Button
+        // Solve
         document.getElementById('btn-solve').addEventListener('click', () => {
             this.solvePuzzle();
         });
 
-        // Player navigation controls
+        // Player navigation
         document.getElementById('btn-prev-step').addEventListener('click', () => {
             if (this.currentStepIndex > 0) {
                 this.currentStepIndex--;
@@ -599,14 +894,16 @@ class ColorBlockApp {
             this.statusMessageEl.style.display = 'none';
 
             if (result.success) {
+                const initialTiles = this.grid.getEffectiveTiles();
                 this.solutionSteps = [
-                    { blocks: this.blocks.map(b => ({ ...b })), move: null },
+                    { blocks: this.blocks.map(b => ({ ...b })), tiles: initialTiles, move: null },
                     ...result.steps
                 ];
                 this.currentStepIndex = 0;
                 this.btnModePlayer.disabled = false;
                 this.switchMode('player');
             } else {
+                console.log('SOLVE FAILED:', result.error, 'BLOCKS:', JSON.stringify(this.blocks), 'GRID:', JSON.stringify(this.grid.getEffectiveTiles()));
                 alert(`Solving failed: ${result.error}`);
             }
         }, 50);
@@ -619,8 +916,10 @@ class ColorBlockApp {
         if (this.currentStepIndex === 0) {
             this.moveDescEl.textContent = 'Initial map layout';
         } else if (currentStep && currentStep.move) {
-            const { blockId, dir, exited } = currentStep.move;
-            if (exited) {
+            const { blockId, dir, exited, peeled } = currentStep.move;
+            if (peeled) {
+                this.moveDescEl.textContent = `Block #${blockId} peels outer color through gate! 🎨`;
+            } else if (exited) {
                 this.moveDescEl.textContent = `Block #${blockId} exits the board ${dir.toLowerCase()}! 🎉`;
             } else {
                 this.moveDescEl.textContent = `Move Block #${blockId} ${dir.toLowerCase()}`;
@@ -630,7 +929,7 @@ class ColorBlockApp {
     }
 }
 
-// Initialize application when DOM is ready
+// Initialize application
 window.addEventListener('DOMContentLoaded', () => {
     window.app = new ColorBlockApp();
 });

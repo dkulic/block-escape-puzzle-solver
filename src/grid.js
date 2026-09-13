@@ -109,9 +109,18 @@ export class GameGrid {
         return this.tiles[y][x];
     }
 
-    setTile(x, y, type, color = null) {
+    setTile(x, y, type, color = null, isToggle = false, isOpen = true) {
         if (this.isValidCoord(x, y)) {
-            this.tiles[y][x] = { type, color: type === TILE_TYPES.GATE ? color : null };
+            if (type === TILE_TYPES.GATE) {
+                this.tiles[y][x] = {
+                    type,
+                    color,
+                    isToggle: !!isToggle,
+                    isOpen: isToggle ? !!isOpen : true
+                };
+            } else {
+                this.tiles[y][x] = { type, color: null };
+            }
         }
     }
 
