@@ -406,7 +406,7 @@ class ColorBlockApp {
                         block.rotation = newRot;
                         this.renderBoard();
                     } else {
-                        alert('Rotacija bloka nije moguća na trenutnoj poziciji jer bi se preklapao sa zidom ili drugim blokom.');
+                        alert('Block rotation is not possible at the current position as it overlaps with a wall or another block.');
                     }
                     return;
                 }
@@ -421,7 +421,7 @@ class ColorBlockApp {
 
             const pos = this.findFirstValidPosition(this.selectedShapeType, this.selectedShapeRotation, this.selectedColor);
             if (!pos) {
-                alert('Nema slobodnog mesta na podu za ovaj oblik! Napravite unutrašnji prostor opasan zidovima.');
+                alert('No available floor space for this shape! Create an enclosed area surrounded by walls.');
                 return;
             }
 
@@ -461,7 +461,7 @@ class ColorBlockApp {
 
         // Clear Map Button
         document.getElementById('btn-clear').addEventListener('click', () => {
-            if (confirm('Da li ste sigurni da želite da očistite celu mapu i sve blokove?')) {
+            if (confirm('Are you sure you want to clear the entire map and all blocks?')) {
                 this.saveUndoState();
                 this.grid = new GameGrid(this.cols, this.rows);
                 this.blocks = [];
@@ -530,7 +530,7 @@ class ColorBlockApp {
                                 block.rotation = newRot;
                                 this.renderBoard();
                             } else {
-                                alert('Rotacija bloka nije moguća na trenutnoj poziciji.');
+                                alert('Block rotation is not possible at the current position.');
                             }
                         }
                     }
@@ -558,17 +558,17 @@ class ColorBlockApp {
 
     solvePuzzle() {
         if (this.blocks.length === 0) {
-            alert('Molimo ubacite bar jedan blok na mapu pre rešavanja!');
+            alert('Please insert at least one block onto the map before solving!');
             return;
         }
 
         this.statusMessageEl.style.display = 'flex';
-        this.statusTextEl.textContent = 'Rešavanje slagalice u toku...';
+        this.statusTextEl.textContent = 'Solving puzzle in progress...';
 
         setTimeout(() => {
             const solver = new PuzzleSolver(this.grid.toJSON(), this.blocks);
             const result = solver.solve(150000, (exploredCount) => {
-                this.statusTextEl.textContent = `Pretraženo stanja: ${exploredCount}...`;
+                this.statusTextEl.textContent = `States explored: ${exploredCount}...`;
             });
 
             this.statusMessageEl.style.display = 'none';
@@ -582,23 +582,23 @@ class ColorBlockApp {
                 this.btnModePlayer.disabled = false;
                 this.switchMode('player');
             } else {
-                alert(`Rešavanje nije uspelo: ${result.error}`);
+                alert(`Solving failed: ${result.error}`);
             }
         }, 50);
     }
 
     updatePlayerUI() {
-        this.stepCounterEl.textContent = `Korak ${this.currentStepIndex} / ${this.solutionSteps.length - 1}`;
+        this.stepCounterEl.textContent = `Step ${this.currentStepIndex} / ${this.solutionSteps.length - 1}`;
         const currentStep = this.solutionSteps[this.currentStepIndex];
 
         if (this.currentStepIndex === 0) {
-            this.moveDescEl.textContent = 'Početni raspored mape';
+            this.moveDescEl.textContent = 'Initial map layout';
         } else if (currentStep && currentStep.move) {
             const { blockId, dir, exited } = currentStep.move;
             if (exited) {
-                this.moveDescEl.textContent = `Blok #${blockId} izlazi sa mape u smeru ${dir}! 🎉`;
+                this.moveDescEl.textContent = `Block #${blockId} exits the board ${dir.toLowerCase()}! 🎉`;
             } else {
-                this.moveDescEl.textContent = `Pomeri Blok #${blockId} u smeru: ${dir}`;
+                this.moveDescEl.textContent = `Move Block #${blockId} ${dir.toLowerCase()}`;
             }
         }
         this.renderBoard();

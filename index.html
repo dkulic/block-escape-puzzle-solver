@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="sr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,7 +9,7 @@
 <body>
     <header>
         <h1>🧩 Color Block Escape Solver</h1>
-        <p>Kreirajte mapu sa blokovima i kapijama i pronađite korak-po-korak rešenje!</p>
+        <p>Create a map with blocks and gates and find step-by-step solutions!</p>
     </header>
 
     <div class="main-container">
@@ -17,38 +17,38 @@
         <aside class="sidebar panel">
             <!-- Mode Switcher -->
             <div class="tool-group">
-                <div class="section-title">Režim rada</div>
+                <div class="section-title">Working Mode</div>
                 <div class="tool-buttons">
-                    <button id="btn-mode-editor" class="btn active">✏️ Editor Mape</button>
-                    <button id="btn-mode-player" class="btn" disabled>▶️ Rešenje</button>
+                    <button id="btn-mode-editor" class="btn active">✏️ Map Editor</button>
+                    <button id="btn-mode-player" class="btn" disabled>▶️ Solution</button>
                 </div>
             </div>
 
             <!-- Map Size Controls -->
             <div class="tool-group">
-                <div class="section-title">Dimenzije Table</div>
+                <div class="section-title">Board Dimensions</div>
                 <div class="input-group">
-                    <label for="input-cols">Širina:</label>
+                    <label for="input-cols">Width:</label>
                     <input type="number" id="input-cols" min="3" max="15" value="8">
-                    <label for="input-rows">Visina:</label>
+                    <label for="input-rows">Height:</label>
                     <input type="number" id="input-rows" min="3" max="15" value="8">
-                    <button id="btn-resize-grid" class="btn">Postavi</button>
+                    <button id="btn-resize-grid" class="btn">Set</button>
                 </div>
             </div>
 
             <!-- Grid Editing Tools -->
             <div class="tool-group">
-                <div class="section-title">Alat za Mrežu (Grid)</div>
+                <div class="section-title">Grid Tools</div>
                 <div class="tool-buttons">
-                    <button id="tool-wall" class="btn active" title="Nepregledan zid">🧱 Zid</button>
-                    <button id="tool-gate" class="btn" title="Kapija u boji kroz koju izlaze blokovi">🚪 Kapija</button>
-                    <button id="tool-erase" class="btn" title="Obriši zid ili kapiju">🧹 Obriši</button>
+                    <button id="tool-wall" class="btn active" title="Impassable Wall">🧱 Wall</button>
+                    <button id="tool-gate" class="btn" title="Colored gate for matching blocks to exit">🚪 Gate</button>
+                    <button id="tool-erase" class="btn" title="Erase wall or gate">🧹 Erase</button>
                 </div>
             </div>
 
             <!-- Color Picker -->
             <div class="tool-group">
-                <div class="section-title">Izbor Boje (Za Kapije i Blokove)</div>
+                <div class="section-title">Color Picker (For Gates & Blocks)</div>
                 <div id="color-picker" class="color-picker-grid">
                     <!-- Dynamic color swatches -->
                 </div>
@@ -56,37 +56,37 @@
 
             <!-- Block Selector & Creator -->
             <div class="tool-group">
-                <div class="section-title">Dodavanje Blokova</div>
+                <div class="section-title">Add Blocks</div>
                 <div class="input-group" style="width: 100%;">
-                    <label for="select-shape" style="width: 70px;">Oblik:</label>
+                    <label for="select-shape" style="width: 70px;">Shape:</label>
                     <select id="select-shape" style="flex: 1; width: auto;">
                         <option value="single_1">Single (1x1)</option>
-                        <option value="line_2">Linija (2)</option>
-                        <option value="line_3">Linija (3)</option>
-                        <option value="line_4">Linija (4)</option>
-                        <option value="l_3">L Profil (3)</option>
-                        <option value="t_4">T Profil (4)</option>
-                        <option value="plus_5">+ Profil (5)</option>
+                        <option value="line_2">Line (2)</option>
+                        <option value="line_3">Line (3)</option>
+                        <option value="line_4">Line (4)</option>
+                        <option value="l_3">L Shape (3)</option>
+                        <option value="t_4">T Shape (4)</option>
+                        <option value="plus_5">Plus (+ 5)</option>
                     </select>
                 </div>
 
                 <div class="shape-preview-container">
                     <div id="shape-preview" class="shape-preview"></div>
-                    <button id="btn-rotate-shape" class="btn" style="width: 100%;">🔄 Rotiraj (90°)</button>
+                    <button id="btn-rotate-shape" class="btn" style="width: 100%;">🔄 Rotate (90°)</button>
                 </div>
 
                 <div class="tool-buttons">
-                    <button id="btn-add-block" class="btn btn-primary" style="width: 100%;">➕ Ubaci Blok na Mapu</button>
+                    <button id="btn-add-block" class="btn btn-primary" style="width: 100%;">➕ Insert Block on Map</button>
                 </div>
             </div>
 
             <!-- Solve Actions & Undo -->
             <div class="tool-group" style="margin-top: auto;">
-                <button id="btn-undo" class="btn" style="width: 100%; margin-bottom: 0.5rem;" title="Poništi poslednju izmenu (Ctrl+Z)">↩️ Poništi (Undo)</button>
+                <button id="btn-undo" class="btn" style="width: 100%; margin-bottom: 0.5rem;" title="Undo last action (Ctrl+Z)">↩️ Undo</button>
                 <button id="btn-solve" class="btn btn-success" style="width: 100%; font-size: 1.1rem; padding: 0.8rem;">
-                    🚀 Pronađi Rešenje (Solve)
+                    🚀 Solve Puzzle
                 </button>
-                <button id="btn-clear" class="btn btn-danger" style="width: 100%;">🗑️ Očisti Mapu</button>
+                <button id="btn-clear" class="btn btn-danger" style="width: 100%;">🗑️ Clear Map</button>
             </div>
         </aside>
 
@@ -98,17 +98,17 @@
 
             <!-- Solution Step Player Controls -->
             <div id="player-controls" class="solution-controls" style="display: none;">
-                <button id="btn-prev-step" class="btn btn-primary" style="font-size: 1.2rem; padding: 0.5rem 1.2rem;">◀ Sledeći unazad</button>
+                <button id="btn-prev-step" class="btn btn-primary" style="font-size: 1.2rem; padding: 0.5rem 1.2rem;">◀ Previous</button>
                 <div style="display: flex; flex-direction: column; align-items: center;">
-                    <span id="step-counter" class="step-info">Korak 0 / 0</span>
-                    <span id="move-description" class="move-description">Aplikacija spremna</span>
+                    <span id="step-counter" class="step-info">Step 0 / 0</span>
+                    <span id="move-description" class="move-description">App Ready</span>
                 </div>
-                <button id="btn-next-step" class="btn btn-primary" style="font-size: 1.2rem; padding: 0.5rem 1.2rem;">Sledeći unapred ▶</button>
+                <button id="btn-next-step" class="btn btn-primary" style="font-size: 1.2rem; padding: 0.5rem 1.2rem;">Next ▶</button>
             </div>
 
             <div id="status-message" class="status-indicator" style="display: none;">
                 <div class="spinner"></div>
-                <span id="status-text">Rešavanje slagalice u toku...</span>
+                <span id="status-text">Solving puzzle in progress...</span>
             </div>
         </main>
     </div>
