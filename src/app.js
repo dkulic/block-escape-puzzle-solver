@@ -148,10 +148,7 @@ class ColorBlockApp {
             }
 
             const tile = effectiveTiles[gy][gx];
-            if (tile.type === TILE_TYPES.VOID || tile.type === TILE_TYPES.WALL) {
-                return false;
-            }
-            if (tile.type === TILE_TYPES.GATE && tile.color !== color) {
+            if (tile.type !== TILE_TYPES.FLOOR) {
                 return false;
             }
 
