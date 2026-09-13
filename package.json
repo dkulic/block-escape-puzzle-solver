@@ -1,0 +1,9 @@
+{
+  "name": "block-escape-puzzle-solver",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo 'No build step required for static assets'"
+  }
+}
