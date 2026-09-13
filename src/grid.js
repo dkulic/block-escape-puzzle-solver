@@ -11,8 +11,10 @@ export const TILE_TYPES = {
 
 export const COLOR_PALETTE = [
     '#e74c3c', // Red
-    '#3498db', // Blue
-    '#2ecc71', // Green
+    '#3498db', // Light Blue
+    '#1d4ed8', // Dark Blue
+    '#2ecc71', // Light Green
+    '#15803d', // Dark Green
     '#f1c40f', // Yellow
     '#9b59b6', // Purple
     '#e67e22', // Orange
