@@ -6,6 +6,7 @@ export const SHAPE_TYPES = {
     LINE_2: 'line_2',
     LINE_3: 'line_3',
     LINE_4: 'line_4',
+    SQUARE_2X2: 'square_2x2',
     L_3: 'l_3',
     T_4: 't_4',
     PLUS_5: 'plus_5'
@@ -16,6 +17,7 @@ export const SHAPE_LABELS = {
     [SHAPE_TYPES.LINE_2]: 'Line (2)',
     [SHAPE_TYPES.LINE_3]: 'Line (3)',
     [SHAPE_TYPES.LINE_4]: 'Line (4)',
+    [SHAPE_TYPES.SQUARE_2X2]: 'Square (2x2)',
     [SHAPE_TYPES.L_3]: 'L Shape (3)',
     [SHAPE_TYPES.T_4]: 'T Shape (4)',
     [SHAPE_TYPES.PLUS_5]: 'Plus (+ 5)'
@@ -27,6 +29,7 @@ const BASE_SHAPES = {
     [SHAPE_TYPES.LINE_2]: [[0, 0], [1, 0]],
     [SHAPE_TYPES.LINE_3]: [[0, 0], [1, 0], [2, 0]],
     [SHAPE_TYPES.LINE_4]: [[0, 0], [1, 0], [2, 0], [3, 0]],
+    [SHAPE_TYPES.SQUARE_2X2]: [[0, 0], [1, 0], [0, 1], [1, 1]],
     [SHAPE_TYPES.L_3]: [[0, 0], [0, 1], [1, 1]],
     [SHAPE_TYPES.T_4]: [[0, 0], [1, 0], [2, 0], [1, 1]],
     [SHAPE_TYPES.PLUS_5]: [[1, 0], [0, 1], [1, 1], [2, 1], [1, 2]]
