@@ -231,6 +231,8 @@ class ColorBlockApp {
         blockEl.className = 'block-element';
         blockEl.dataset.id = block.id;
 
+        const cellSet = new Set(shapeCells.map(([cx, cy]) => `${cx},${cy}`));
+
         shapeCells.forEach(([cx, cy], idx) => {
             const cellEl = document.createElement('div');
             cellEl.className = 'block-cell';
@@ -240,6 +242,22 @@ class ColorBlockApp {
             cellEl.style.top = `${cellY}px`;
             cellEl.style.backgroundColor = block.color;
 
+            const hasTop = cellSet.has(`${cx},${cy - 1}`);
+            const hasRight = cellSet.has(`${cx + 1},${cy}`);
+            const hasBottom = cellSet.has(`${cx},${cy + 1}`);
+            const hasLeft = cellSet.has(`${cx - 1},${cy}`);
+
+            const borderStr = '2px solid rgba(0, 0, 0, 0.9)';
+            cellEl.style.borderTop = hasTop ? 'none' : borderStr;
+            cellEl.style.borderRight = hasRight ? 'none' : borderStr;
+            cellEl.style.borderBottom = hasBottom ? 'none' : borderStr;
+            cellEl.style.borderLeft = hasLeft ? 'none' : borderStr;
+
+            cellEl.style.borderTopLeftRadius = (!hasTop && !hasLeft) ? '6px' : '0px';
+            cellEl.style.borderTopRightRadius = (!hasTop && !hasRight) ? '6px' : '0px';
+            cellEl.style.borderBottomRightRadius = (!hasBottom && !hasRight) ? '6px' : '0px';
+            cellEl.style.borderBottomLeftRadius = (!hasBottom && !hasLeft) ? '6px' : '0px';
+
             if (idx === 0) {
                 const labelEl = document.createElement('span');
                 labelEl.className = 'block-id-label';
@@ -248,7 +266,9 @@ class ColorBlockApp {
             }
 
             if (block.id === this.selectedBlockId && this.mode === 'editor') {
-                cellEl.style.boxShadow = '0 0 0 3px #ffffff, inset 0 0 0 2px #000000, 0 4px 8px rgba(0,0,0,0.5)';
+                cellEl.style.boxShadow = '0 0 0 3px #ffffff, 0 4px 8px rgba(0,0,0,0.5)';
+            } else {
+                cellEl.style.boxShadow = 'inset 0 0 0 1px rgba(255, 255, 255, 0.25)';
             }
 
             blockEl.appendChild(cellEl);
