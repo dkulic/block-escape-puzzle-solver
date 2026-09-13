@@ -234,7 +234,7 @@ class ColorBlockApp {
         blockEl.className = 'block-element';
         blockEl.dataset.id = block.id;
 
-        shapeCells.forEach(([cx, cy]) => {
+        shapeCells.forEach(([cx, cy], idx) => {
             const cellEl = document.createElement('div');
             cellEl.className = 'block-cell';
             const cellX = (block.x + cx) * 42; // cell-size 40px + 2px gap
@@ -243,8 +243,15 @@ class ColorBlockApp {
             cellEl.style.top = `${cellY}px`;
             cellEl.style.backgroundColor = block.color;
 
+            if (idx === 0) {
+                const labelEl = document.createElement('span');
+                labelEl.className = 'block-id-label';
+                labelEl.textContent = `#${block.id}`;
+                cellEl.appendChild(labelEl);
+            }
+
             if (block.id === this.selectedBlockId && this.mode === 'editor') {
-                cellEl.style.boxShadow = '0 0 0 3px #ffffff, 0 4px 8px rgba(0,0,0,0.5)';
+                cellEl.style.boxShadow = '0 0 0 3px #ffffff, inset 0 0 0 2px #000000, 0 4px 8px rgba(0,0,0,0.5)';
             }
 
             blockEl.appendChild(cellEl);
