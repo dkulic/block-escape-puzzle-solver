@@ -130,13 +130,18 @@
                 </div>
             </div>
 
-            <!-- Solve Actions & Undo -->
+            <!-- Map File & Solve Actions -->
             <div class="tool-group" style="margin-top: auto;">
+                <div class="tool-buttons" style="margin-bottom: 0.5rem;">
+                    <button id="btn-save-map" class="btn" style="flex: 1;" title="Save current map to JSON file">💾 Save Map</button>
+                    <button id="btn-load-map" class="btn" style="flex: 1;" title="Load map from JSON file">📂 Load Map</button>
+                    <input type="file" id="input-load-map" accept=".json" style="display: none;">
+                </div>
                 <button id="btn-undo" class="btn" style="width: 100%; margin-bottom: 0.5rem;" title="Undo last action (Ctrl+Z)">↩️ Undo</button>
                 <button id="btn-solve" class="btn btn-success" style="width: 100%; font-size: 1.1rem; padding: 0.8rem;">
                     🚀 Solve Puzzle
                 </button>
-                <button id="btn-clear" class="btn btn-danger" style="width: 100%;">🗑️ Clear Map</button>
+                <button id="btn-clear" class="btn btn-danger" style="width: 100%; margin-top: 0.5rem;">🗑️ Clear Map</button>
             </div>
         </aside>
 

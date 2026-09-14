@@ -68,6 +68,9 @@ class ColorBlockApp {
         this.stepCounterEl = document.getElementById('step-counter');
         this.moveDescEl = document.getElementById('move-description');
         this.btnUndo = document.getElementById('btn-undo');
+        this.btnSaveMap = document.getElementById('btn-save-map');
+        this.btnLoadMap = document.getElementById('btn-load-map');
+        this.inputLoadMap = document.getElementById('input-load-map');
 
         // Gate options DOM
         this.gateOptionsEl = document.getElementById('gate-options');
@@ -771,6 +774,27 @@ class ColorBlockApp {
             }
         });
 
+        // Save & Load Map
+        if (this.btnSaveMap) {
+            this.btnSaveMap.addEventListener('click', () => {
+                this.exportMapToFile();
+            });
+        }
+
+        if (this.btnLoadMap && this.inputLoadMap) {
+            this.btnLoadMap.addEventListener('click', () => {
+                this.inputLoadMap.value = '';
+                this.inputLoadMap.click();
+            });
+
+            this.inputLoadMap.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) {
+                    this.importMapFromFile(file);
+                }
+            });
+        }
+
         // Undo
         if (this.btnUndo) {
             this.btnUndo.addEventListener('click', () => {
@@ -857,6 +881,61 @@ class ColorBlockApp {
                 }
             }
         });
+    }
+
+    exportMapToFile() {
+        const mapData = {
+            version: 1,
+            cols: this.cols,
+            rows: this.rows,
+            grid: this.grid.toJSON(),
+            blocks: this.blocks,
+            nextBlockId: this.nextBlockId
+        };
+        const jsonStr = JSON.stringify(mapData, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `puzzle-map-${this.cols}x${this.rows}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    importMapFromFile(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (!data || typeof data.cols !== 'number' || typeof data.rows !== 'number' || !data.grid) {
+                    throw new Error('Invalid map file format.');
+                }
+                this.saveUndoState();
+                this.cols = data.cols;
+                this.rows = data.rows;
+                this.grid = GameGrid.fromJSON(data.grid);
+                this.blocks = Array.isArray(data.blocks) ? data.blocks : [];
+                this.nextBlockId = typeof data.nextBlockId === 'number' ? data.nextBlockId : (
+                    this.blocks.length > 0 ? Math.max(...this.blocks.map(b => b.id || 0)) + 1 : 1
+                );
+                this.selectedBlockId = null;
+                this.selectedGateCoord = null;
+
+                const colsInput = document.getElementById('input-cols');
+                const rowsInput = document.getElementById('input-rows');
+                if (colsInput) colsInput.value = this.cols;
+                if (rowsInput) rowsInput.value = this.rows;
+
+                this.switchMode('editor');
+                this.renderBoard();
+            } catch (err) {
+                alert('Failed to load map file: ' + err.message);
+            }
+        };
+        reader.readAsText(file);
     }
 
     switchMode(targetMode) {
