@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "echo 'No build step required for static assets'"
+    "build": "echo 'No build step required for static assets'",
+    "test": "node tests/solver.test.js"
   }
 }
