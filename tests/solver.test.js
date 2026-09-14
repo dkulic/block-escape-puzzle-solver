@@ -136,4 +136,30 @@ console.log('Running PuzzleSolver tests...');
     console.log('✓ Test 5: Dual color block in stitched group peels outer color');
 }
 
+// Test 6: Stitched blocks group movement with obstacles and exit
+{
+    const grid = new GameGrid(6, 6);
+    for (let r = 1; r <= 4; r++) {
+        grid.setTile(1, r, TILE_TYPES.WALL);
+        grid.setTile(4, r, TILE_TYPES.WALL);
+    }
+    for (let c = 1; c <= 4; c++) {
+        grid.setTile(c, 1, TILE_TYPES.WALL);
+        grid.setTile(c, 4, TILE_TYPES.WALL);
+    }
+    grid.setTile(1, 2, TILE_TYPES.GATE, COLOR_PALETTE[0]); // Red gate
+    grid.setTile(4, 3, TILE_TYPES.GATE, COLOR_PALETTE[1]); // Blue gate
+
+    const blocks = [
+        { id: 1, type: SHAPE_TYPES.SINGLE_1, rotation: 0, color: COLOR_PALETTE[0], x: 2, y: 2, blockType: BLOCK_TYPES.NORMAL },
+        { id: 2, type: SHAPE_TYPES.SINGLE_1, rotation: 0, color: COLOR_PALETTE[1], x: 3, y: 2, blockType: BLOCK_TYPES.NORMAL }
+    ];
+    const stitches = [[1, 2]];
+
+    const solver = new PuzzleSolver(grid.toJSON(), blocks, stitches);
+    const res = solver.solve();
+    assert(res.success === true, 'Test 6 failed: stitched blocks should navigate and exit');
+    console.log('✓ Test 6: Stitched blocks navigate obstacles and exit');
+}
+
 console.log('\nAll PuzzleSolver tests passed successfully! ✨');

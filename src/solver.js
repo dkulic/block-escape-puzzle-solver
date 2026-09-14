@@ -1,5 +1,5 @@
 // src/solver.js
-// Optimized BFS Puzzle Solver for Color Block Escape with Special Blocks & Toggle Gates
+// Memory & Speed Optimized BFS Puzzle Solver for Color Block Escape with Special Blocks & Toggle Gates
 
 import { getShapeCells, BLOCK_TYPES } from './shapes.js';
 import { TILE_TYPES } from './grid.js';
@@ -94,15 +94,35 @@ export class PuzzleSolver {
         }));
         this.initialStitches = (stitchesData || []).map(([a, b]) => [Math.min(a, b), Math.max(a, b)]);
 
-        // Find toggle gate positions once for fast state serialization
+        // Find toggle gate positions once for fast bitmask state representation
         this.toggleGateCoords = [];
+        this.initialToggleMask = 0;
+
         for (let r = 0; r < this.rows; r++) {
             for (let c = 0; c < this.cols; c++) {
-                if (this.initialTiles[r][c].type === TILE_TYPES.GATE && this.initialTiles[r][c].isToggle) {
+                const tile = this.initialTiles[r][c];
+                if (tile.type === TILE_TYPES.GATE && tile.isToggle) {
+                    const idx = this.toggleGateCoords.length;
                     this.toggleGateCoords.push([c, r]);
+                    tile.toggleIdx = idx;
+                    if (tile.isOpen !== false) {
+                        this.initialToggleMask |= (1 << idx);
+                    }
                 }
             }
         }
+    }
+
+    getEffectiveTile(x, y, toggleMask) {
+        if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) {
+            return { type: TILE_TYPES.VOID, color: null };
+        }
+        const tile = this.initialTiles[y][x];
+        if (tile.type === TILE_TYPES.GATE && tile.isToggle) {
+            const isOpen = ((toggleMask >> tile.toggleIdx) & 1) === 1;
+            return { ...tile, isOpen };
+        }
+        return tile;
     }
 
     getConnectedGroups(blocks, stitches) {
@@ -144,14 +164,14 @@ export class PuzzleSolver {
         return { groups, validStitches };
     }
 
-    isPlayableCell(tiles, gx, gy) {
+    isPlayableCell(gx, gy) {
         if (gx < 0 || gx >= this.cols || gy < 0 || gy >= this.rows) {
             return false;
         }
-        return tiles[gy][gx].type !== TILE_TYPES.VOID;
+        return this.initialTiles[gy][gx].type !== TILE_TYPES.VOID;
     }
 
-    canOccupy(block, bx, by, tiles) {
+    canOccupy(block, bx, by, toggleMask) {
         const shapeCells = getShapeCells(block.type, block.rotation);
         for (const [cx, cy] of shapeCells) {
             const gx = bx + cx;
@@ -161,7 +181,7 @@ export class PuzzleSolver {
                 return false;
             }
 
-            const tile = tiles[gy][gx];
+            const tile = this.getEffectiveTile(gx, gy, toggleMask);
             if (tile.type === TILE_TYPES.VOID || tile.type === TILE_TYPES.WALL) {
                 return false;
             }
@@ -177,7 +197,7 @@ export class PuzzleSolver {
         return true;
     }
 
-    canExit(block, bx, by, dx, dy, occupiedGrid, tiles) {
+    canExit(block, bx, by, dx, dy, occupiedGrid, toggleMask) {
         const shapeCells = getShapeCells(block.type, block.rotation);
         let currentX = bx;
         let currentY = by;
@@ -192,14 +212,14 @@ export class PuzzleSolver {
                 const gx = currentX + cx;
                 const gy = currentY + cy;
 
-                if (this.isPlayableCell(tiles, gx, gy)) {
+                if (this.isPlayableCell(gx, gy)) {
                     anyInsidePlayable = true;
 
                     if (occupiedGrid[gy][gx] !== null && occupiedGrid[gy][gx] !== block.id) {
                         return false;
                     }
 
-                    const tile = tiles[gy][gx];
+                    const tile = this.getEffectiveTile(gx, gy, toggleMask);
                     if (tile.type === TILE_TYPES.WALL) {
                         return false;
                     }
@@ -214,8 +234,8 @@ export class PuzzleSolver {
                 } else {
                     const prevGx = gx - dx;
                     const prevGy = gy - dy;
-                    if (this.isPlayableCell(tiles, prevGx, prevGy)) {
-                        const exitTile = tiles[prevGy][prevGx];
+                    if (this.isPlayableCell(prevGx, prevGy)) {
+                        const exitTile = this.getEffectiveTile(prevGx, prevGy, toggleMask);
                         if (exitTile.type !== TILE_TYPES.GATE || exitTile.color !== block.color) {
                             return false;
                         }
@@ -242,13 +262,13 @@ export class PuzzleSolver {
         return true;
     }
 
-    applyEliminationEvent(blocks, tiles, eliminatedBlock) {
-        const newTiles = tiles.map(row => row.map(tile => {
-            if (tile.type === TILE_TYPES.GATE && tile.isToggle) {
-                return { ...tile, isOpen: !tile.isOpen };
-            }
-            return tile;
-        }));
+    applyEliminationEvent(blocks, toggleMask, eliminatedBlock) {
+        let newToggleMask = toggleMask;
+
+        if (this.toggleGateCoords.length > 0) {
+            const toggleBits = (1 << this.toggleGateCoords.length) - 1;
+            newToggleMask = toggleMask ^ toggleBits;
+        }
 
         const isKey = eliminatedBlock.blockType === BLOCK_TYPES.KEY;
 
@@ -263,20 +283,14 @@ export class PuzzleSolver {
             return nb;
         });
 
-        return { newBlocks, newTiles };
+        return { newBlocks, newToggleMask };
     }
 
-    serializeState(blocks, tiles, stitches) {
+    serializeState(blocks, toggleMask, stitches) {
         let blocksKey = '';
         for (let i = 0; i < blocks.length; i++) {
             const b = blocks[i];
             blocksKey += `${b.id}:${b.x},${b.y},${b.blockType},${b.color},${b.keyCount},${b.freezeCount};`;
-        }
-
-        let gatesKey = '';
-        for (let i = 0; i < this.toggleGateCoords.length; i++) {
-            const [c, r] = this.toggleGateCoords[i];
-            gatesKey += `${tiles[r][c].isOpen ? 1 : 0}`;
         }
 
         const blockIds = new Set(blocks.map(b => b.id));
@@ -286,7 +300,7 @@ export class PuzzleSolver {
             .sort()
             .join(',');
 
-        return `${blocksKey}|${gatesKey}|${validStitchesStr}`;
+        return `${blocksKey}|${toggleMask}|${validStitchesStr}`;
     }
 
     buildOccupiedGrid(blocks) {
@@ -304,19 +318,14 @@ export class PuzzleSolver {
         return grid;
     }
 
-    isCollidingWithOthers(block, nx, ny, occupiedGrid) {
-        const cells = getShapeCells(block.type, block.rotation);
-        for (const [cx, cy] of cells) {
-            const gx = nx + cx;
-            const gy = ny + cy;
-            if (gx >= 0 && gx < this.cols && gy >= 0 && gy < this.rows) {
-                const occ = occupiedGrid[gy][gx];
-                if (occ !== null && occ !== block.id) {
-                    return true;
-                }
+    getTilesFromToggleMask(toggleMask) {
+        return this.initialTiles.map((row, r) => row.map((tile, c) => {
+            if (tile.type === TILE_TYPES.GATE && tile.isToggle) {
+                const isOpen = ((toggleMask >> tile.toggleIdx) & 1) === 1;
+                return { ...tile, isOpen };
             }
-        }
-        return false;
+            return { ...tile };
+        }));
     }
 
     reconstructHistory(endNode) {
@@ -325,7 +334,7 @@ export class PuzzleSolver {
         while (curr && curr.move) {
             history.unshift({
                 blocks: curr.blocks,
-                tiles: curr.tiles,
+                tiles: this.getTilesFromToggleMask(curr.toggleMask),
                 stitches: curr.stitches,
                 move: curr.move
             });
@@ -337,13 +346,13 @@ export class PuzzleSolver {
     /**
      * Solves the puzzle using MinHeap BFS.
      */
-    solve(maxStates = 250000, progressCallback = null) {
+    solve(maxStates = 1000000, progressCallback = null) {
         const startBlocks = this.initialBlocks.map(b => ({ ...b }));
-        const startTiles = this.initialTiles.map(row => row.map(t => ({ ...t })));
+        const startToggleMask = this.initialToggleMask;
         const startStitches = this.initialStitches.map(([a, b]) => [a, b]);
 
         for (const b of startBlocks) {
-            if (!this.canOccupy(b, b.x, b.y, startTiles)) {
+            if (!this.canOccupy(b, b.x, b.y, startToggleMask)) {
                 return { success: false, error: 'Initial configuration has overlapping or invalid blocks.' };
             }
         }
@@ -353,7 +362,7 @@ export class PuzzleSolver {
         const heap = new MinHeap();
         const startNode = {
             blocks: startBlocks,
-            tiles: startTiles,
+            toggleMask: startToggleMask,
             stitches: startStitches,
             move: null,
             parent: null,
@@ -363,7 +372,7 @@ export class PuzzleSolver {
         heap.push(startNode);
 
         const visited = new Set();
-        visited.add(this.serializeState(startBlocks, startTiles, startStitches));
+        visited.add(this.serializeState(startBlocks, startToggleMask, startStitches));
 
         const directions = [
             { dx: 0, dy: -1, name: 'Up' },
@@ -376,7 +385,7 @@ export class PuzzleSolver {
 
         while (heap.size() > 0) {
             const current = heap.pop();
-            const { blocks, tiles, stitches, priorityExitStep, totalSteps } = current;
+            const { blocks, toggleMask, stitches, priorityExitStep, totalSteps } = current;
 
             exploredCount++;
 
@@ -418,7 +427,7 @@ export class PuzzleSolver {
                         const nx = b.x + dir.dx;
                         const ny = b.y + dir.dy;
 
-                        if (!this.canOccupy(b, nx, ny, tiles)) {
+                        if (!this.canOccupy(b, nx, ny, toggleMask)) {
                             canGroupMove = false;
                             break;
                         }
@@ -441,12 +450,12 @@ export class PuzzleSolver {
 
                     if (canGroupMove) {
                         const newBlocks = blocks.map(b => groupSet.has(b.id) ? { ...b, x: b.x + dir.dx, y: b.y + dir.dy } : { ...b });
-                        const key = this.serializeState(newBlocks, tiles, validStitches);
+                        const key = this.serializeState(newBlocks, toggleMask, validStitches);
                         if (!visited.has(key)) {
                             visited.add(key);
                             heap.push({
                                 blocks: newBlocks,
-                                tiles: tiles,
+                                toggleMask: toggleMask,
                                 stitches: validStitches,
                                 move: {
                                     blockId: groupBlocks.length > 1 ? groupIds : groupBlocks[0].id,
@@ -464,14 +473,6 @@ export class PuzzleSolver {
                 }
             }
 
-            // Build group lookup map for fast access
-            const groupMap = new Map();
-            for (const groupIds of groups) {
-                for (const id of groupIds) {
-                    groupMap.set(id, groupIds);
-                }
-            }
-
             // 2. Individual Block Exits / Peeling through gates
             for (let i = 0; i < blocks.length; i++) {
                 const block = blocks[i];
@@ -481,7 +482,7 @@ export class PuzzleSolver {
                 }
 
                 for (const dir of directions) {
-                    if (this.canExit(block, block.x, block.y, dir.dx, dir.dy, occupiedGrid, tiles)) {
+                    if (this.canExit(block, block.x, block.y, dir.dx, dir.dy, occupiedGrid, toggleMask)) {
                         let newBlocks;
                         let newPriorityExitStep = priorityExitStep;
 
@@ -498,16 +499,16 @@ export class PuzzleSolver {
 
                             const tempBlocks = blocks.map(b => b.id === block.id ? peeledBlock : { ...b });
 
-                            const elimResult = this.applyEliminationEvent(tempBlocks, tiles, block);
+                            const elimResult = this.applyEliminationEvent(tempBlocks, toggleMask, block);
                             newBlocks = elimResult.newBlocks;
-                            const newTiles = elimResult.newTiles;
+                            const newToggleMask = elimResult.newToggleMask;
 
-                            const key = this.serializeState(newBlocks, newTiles, validStitches);
+                            const key = this.serializeState(newBlocks, newToggleMask, validStitches);
                             if (!visited.has(key)) {
                                 visited.add(key);
                                 heap.push({
                                     blocks: newBlocks,
-                                    tiles: newTiles,
+                                    toggleMask: newToggleMask,
                                     stitches: validStitches,
                                     move: { blockId: block.id, dir: dir.name, exited: false, peeled: true, color: block.color, newColor: peeledBlock.color },
                                     parent: current,
@@ -522,16 +523,16 @@ export class PuzzleSolver {
 
                             const tempBlocks = blocks.filter(b => b.id !== block.id);
                             const newStitches = validStitches.filter(([a, b]) => a !== block.id && b !== block.id);
-                            const elimResult = this.applyEliminationEvent(tempBlocks, tiles, block);
+                            const elimResult = this.applyEliminationEvent(tempBlocks, toggleMask, block);
                             newBlocks = elimResult.newBlocks;
-                            const newTiles = elimResult.newTiles;
+                            const newToggleMask = elimResult.newToggleMask;
 
-                            const key = this.serializeState(newBlocks, newTiles, newStitches);
+                            const key = this.serializeState(newBlocks, newToggleMask, newStitches);
                             if (!visited.has(key)) {
                                 visited.add(key);
                                 heap.push({
                                     blocks: newBlocks,
-                                    tiles: newTiles,
+                                    toggleMask: newToggleMask,
                                     stitches: newStitches,
                                     move: { blockId: block.id, dir: dir.name, exited: true, color: block.color },
                                     parent: current,
