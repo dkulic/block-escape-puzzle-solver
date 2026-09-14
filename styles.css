@@ -442,6 +442,48 @@ header p {
     z-index: 2;
 }
 
+/* Stitch visual rendering */
+.stitch-seam {
+    position: absolute;
+    pointer-events: auto;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stitch-seam-horizontal {
+    height: 8px;
+    margin-top: -4px;
+    background: repeating-linear-gradient(
+        90deg,
+        #f59e0b,
+        #f59e0b 6px,
+        transparent 6px,
+        transparent 10px
+    );
+    border-top: 1px solid #78350f;
+    border-bottom: 1px solid #78350f;
+    border-radius: 2px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.6);
+}
+
+.stitch-seam-vertical {
+    width: 8px;
+    margin-left: -4px;
+    background: repeating-linear-gradient(
+        0deg,
+        #f59e0b,
+        #f59e0b 6px,
+        transparent 6px,
+        transparent 10px
+    );
+    border-left: 1px solid #78350f;
+    border-right: 1px solid #78350f;
+    border-radius: 2px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.6);
+}
+
 /* Drag & Drop Feedback */
 .block-cell.drag-valid {
     box-shadow: 0 0 0 3px #10b981, 0 4px 12px rgba(16, 185, 129, 0.6) !important;
