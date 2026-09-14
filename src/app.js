@@ -31,9 +31,11 @@ class ColorBlockApp {
         // Selected elements in editor
         this.selectedBlockId = null;
         this.selectedGateCoord = null; // { x, y }
+        this.stitchStartBlockId = null; // First block selected for stitching in editor
 
         // Blocks list: [{ id, type, rotation, color, x, y, blockType, innerColor, keyCount, freezeCount, isPriority }]
         this.blocks = [];
+        this.stitches = []; // Array of normalized block ID pairs: [[id1, id2], ...]
         this.nextBlockId = 1;
 
         // Undo stack
@@ -187,12 +189,18 @@ class ColorBlockApp {
         }
     }
 
+    cleanStitches() {
+        const blockIds = new Set(this.blocks.map(b => b.id));
+        this.stitches = this.stitches.filter(([id1, id2]) => blockIds.has(id1) && blockIds.has(id2));
+    }
+
     saveUndoState() {
         this.undoStack.push({
             gridRawTiles: JSON.parse(JSON.stringify(this.grid.tiles)),
             cols: this.cols,
             rows: this.rows,
             blocks: JSON.parse(JSON.stringify(this.blocks)),
+            stitches: JSON.parse(JSON.stringify(this.stitches)),
             selectedBlockId: this.selectedBlockId,
             selectedGateCoord: this.selectedGateCoord ? { ...this.selectedGateCoord } : null,
             nextBlockId: this.nextBlockId
@@ -211,6 +219,7 @@ class ColorBlockApp {
         this.grid.rows = lastState.rows;
         this.grid.tiles = JSON.parse(JSON.stringify(lastState.gridRawTiles));
         this.blocks = JSON.parse(JSON.stringify(lastState.blocks));
+        this.stitches = JSON.parse(JSON.stringify(lastState.stitches || []));
         this.selectedBlockId = lastState.selectedBlockId;
         this.selectedGateCoord = lastState.selectedGateCoord;
         this.nextBlockId = lastState.nextBlockId;
@@ -319,6 +328,13 @@ class ColorBlockApp {
         currentBlocks.forEach(block => {
             this.renderBlock(block);
         });
+
+        // Render Stitches
+        const currentStitches = (this.mode === 'player' && this.solutionSteps.length > 0)
+            ? (this.solutionSteps[this.currentStepIndex].stitches || this.stitches)
+            : this.stitches;
+
+        this.renderStitches(currentBlocks, currentStitches);
     }
 
     renderBlock(block) {
@@ -414,16 +430,24 @@ class ColorBlockApp {
                 e.stopPropagation();
                 e.preventDefault();
 
+                if (this.activeGridTool === 'stitch') {
+                    this.handleBlockStitchClick(block.id);
+                    return;
+                }
+
                 this.selectBlock(block.id);
+
+                const groupIds = this.getConnectedBlockIds(block.id);
+                const groupBlocks = groupIds.map(id => this.blocks.find(b => b.id === id)).filter(Boolean);
+                const groupSet = new Set(groupIds);
 
                 const startMouseX = e.clientX;
                 const startMouseY = e.clientY;
-                const origX = block.x;
-                const origY = block.y;
+                const origPositions = new Map(groupBlocks.map(b => [b.id, { x: b.x, y: b.y }]));
 
                 let dragging = false;
-                let candidateX = origX;
-                let candidateY = origY;
+                let gridOffsetCols = 0;
+                let gridOffsetRows = 0;
                 let isValid = true;
                 let isOffBoard = false;
 
@@ -437,27 +461,70 @@ class ColorBlockApp {
 
                     if (!dragging) return;
 
-                    const gridOffsetCols = Math.round(dxPixels / 42);
-                    const gridOffsetRows = Math.round(dyPixels / 42);
+                    gridOffsetCols = Math.round(dxPixels / 42);
+                    gridOffsetRows = Math.round(dyPixels / 42);
 
-                    candidateX = origX + gridOffsetCols;
-                    candidateY = origY + gridOffsetRows;
+                    const candidatePositions = new Map();
+                    let allOffBoard = true;
+                    let anyInvalid = false;
 
-                    const shape = getShapeCells(block.type, block.rotation);
-                    const minX = Math.min(...shape.map(([cx]) => candidateX + cx));
-                    const maxX = Math.max(...shape.map(([cx]) => candidateX + cx));
-                    const minY = Math.min(...shape.map(([, cy]) => candidateY + cy));
-                    const maxY = Math.max(...shape.map(([, cy]) => candidateY + cy));
+                    const effectiveTiles = this.grid.getEffectiveTiles();
 
-                    isOffBoard = (maxX < 0 || minX >= this.cols || maxY < 0 || minY >= this.rows);
+                    for (const gBlock of groupBlocks) {
+                        const orig = origPositions.get(gBlock.id);
+                        const candX = orig.x + gridOffsetCols;
+                        const candY = orig.y + gridOffsetRows;
+                        candidatePositions.set(gBlock.id, { x: candX, y: candY });
 
-                    if (isOffBoard) {
-                        isValid = false;
-                    } else {
-                        isValid = this.isValidBlockPosition(block.type, block.rotation, block.color, candidateX, candidateY, block.id);
+                        const shape = getShapeCells(gBlock.type, gBlock.rotation);
+                        const minX = Math.min(...shape.map(([cx]) => candX + cx));
+                        const maxX = Math.max(...shape.map(([cx]) => candX + cx));
+                        const minY = Math.min(...shape.map(([, cy]) => candY + cy));
+                        const maxY = Math.max(...shape.map(([, cy]) => candY + cy));
+
+                        const blockIsOffBoard = (maxX < 0 || minX >= this.cols || maxY < 0 || minY >= this.rows);
+                        if (!blockIsOffBoard) {
+                            allOffBoard = false;
+                        }
+
+                        // Check validity for this block at candidate pos
+                        for (const [cx, cy] of shape) {
+                            const gx = candX + cx;
+                            const gy = candY + cy;
+
+                            if (gx < 0 || gx >= this.cols || gy < 0 || gy >= this.rows) {
+                                anyInvalid = true;
+                                break;
+                            }
+
+                            const tile = effectiveTiles[gy][gx];
+                            if (tile.type !== TILE_TYPES.FLOOR) {
+                                anyInvalid = true;
+                                break;
+                            }
+
+                            // Check collision with other blocks NOT in group
+                            for (const other of this.blocks) {
+                                if (groupSet.has(other.id)) continue;
+                                const otherCells = getShapeCells(other.type, other.rotation);
+                                for (const [ocx, ocy] of otherCells) {
+                                    if (other.x + ocx === gx && other.y + ocy === gy) {
+                                        anyInvalid = true;
+                                        break;
+                                    }
+                                }
+                                if (anyInvalid) break;
+                            }
+                        }
                     }
 
-                    this.updateDragPreview(block, candidateX, candidateY, isValid, isOffBoard);
+                    isOffBoard = allOffBoard;
+                    isValid = !isOffBoard && !anyInvalid;
+
+                    for (const gBlock of groupBlocks) {
+                        const candPos = candidatePositions.get(gBlock.id);
+                        this.updateDragPreview(gBlock, candPos.x, candPos.y, isValid, isOffBoard);
+                    }
                 };
 
                 const onMouseUp = () => {
@@ -467,15 +534,16 @@ class ColorBlockApp {
                     if (dragging) {
                         if (isOffBoard) {
                             this.saveUndoState();
-                            this.blocks = this.blocks.filter(b => b.id !== block.id);
+                            this.blocks = this.blocks.filter(b => !groupSet.has(b.id));
+                            this.cleanStitches();
                             this.selectedBlockId = null;
-                        } else if (isValid && (candidateX !== origX || candidateY !== origY)) {
+                        } else if (isValid && (gridOffsetCols !== 0 || gridOffsetRows !== 0)) {
                             this.saveUndoState();
-                            block.x = candidateX;
-                            block.y = candidateY;
-                        } else {
-                            block.x = origX;
-                            block.y = origY;
+                            for (const gBlock of groupBlocks) {
+                                const orig = origPositions.get(gBlock.id);
+                                gBlock.x = orig.x + gridOffsetCols;
+                                gBlock.y = orig.y + gridOffsetRows;
+                            }
                         }
                     }
                     this.renderBoard();
@@ -487,6 +555,150 @@ class ColorBlockApp {
         }
 
         this.gridBoardEl.appendChild(blockEl);
+    }
+
+    getConnectedBlockIds(startBlockId) {
+        const blockIds = new Set(this.blocks.map(b => b.id));
+        const validStitches = this.stitches.filter(([a, b]) => blockIds.has(a) && blockIds.has(b));
+
+        const adj = new Map();
+        for (const b of this.blocks) {
+            adj.set(b.id, []);
+        }
+        for (const [a, b] of validStitches) {
+            adj.get(a).push(b);
+            adj.get(b).push(a);
+        }
+
+        const visited = new Set();
+        const queue = [startBlockId];
+        visited.add(startBlockId);
+
+        while (queue.length > 0) {
+            const curr = queue.shift();
+            for (const neighbor of (adj.get(curr) || [])) {
+                if (!visited.has(neighbor)) {
+                    visited.add(neighbor);
+                    queue.push(neighbor);
+                }
+            }
+        }
+
+        return Array.from(visited);
+    }
+
+    areBlocksAdjacent(b1, b2) {
+        const cells1 = getShapeCells(b1.type, b1.rotation).map(([cx, cy]) => [b1.x + cx, b1.y + cy]);
+        const cells2 = getShapeCells(b2.type, b2.rotation).map(([cx, cy]) => [b2.x + cx, b2.y + cy]);
+
+        for (const [x1, y1] of cells1) {
+            for (const [x2, y2] of cells2) {
+                if ((Math.abs(x1 - x2) === 1 && y1 === y2) || (Math.abs(y1 - y2) === 1 && x1 === x2)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    toggleStitch(id1, id2) {
+        const minId = Math.min(id1, id2);
+        const maxId = Math.max(id1, id2);
+
+        const existingIdx = this.stitches.findIndex(([a, b]) => a === minId && b === maxId);
+        this.saveUndoState();
+        if (existingIdx >= 0) {
+            this.stitches.splice(existingIdx, 1);
+        } else {
+            this.stitches.push([minId, maxId]);
+        }
+        this.renderBoard();
+    }
+
+    handleBlockStitchClick(blockId) {
+        if (this.stitchStartBlockId === null) {
+            this.stitchStartBlockId = blockId;
+            this.selectedBlockId = blockId;
+            this.renderBoard();
+        } else if (this.stitchStartBlockId === blockId) {
+            this.stitchStartBlockId = null;
+            this.renderBoard();
+        } else {
+            const b1 = this.blocks.find(b => b.id === this.stitchStartBlockId);
+            const b2 = this.blocks.find(b => b.id === blockId);
+
+            if (b1 && b2) {
+                if (this.areBlocksAdjacent(b1, b2)) {
+                    this.toggleStitch(b1.id, b2.id);
+                } else {
+                    alert('Blocks must be directly adjacent (touching) to be stitched together!');
+                }
+            }
+            this.stitchStartBlockId = null;
+            this.renderBoard();
+        }
+    }
+
+    renderStitches(blocks, stitches) {
+        if (!stitches || stitches.length === 0) return;
+
+        const blockMap = new Map(blocks.map(b => [b.id, b]));
+
+        stitches.forEach(([id1, id2]) => {
+            const b1 = blockMap.get(id1);
+            const b2 = blockMap.get(id2);
+            if (!b1 || !b2) return;
+
+            const cells1 = getShapeCells(b1.type, b1.rotation).map(([cx, cy]) => [b1.x + cx, b1.y + cy]);
+            const cells2 = getShapeCells(b2.type, b2.rotation).map(([cx, cy]) => [b2.x + cx, b2.y + cy]);
+
+            const sharedBorders = [];
+
+            cells1.forEach(([x1, y1]) => {
+                cells2.forEach(([x2, y2]) => {
+                    if (x1 === x2 && y1 + 1 === y2) {
+                        // b1 is directly above b2
+                        sharedBorders.push({ type: 'horizontal', x: x1, y: y2 });
+                    } else if (x1 === x2 && y2 + 1 === y1) {
+                        // b2 is directly above b1
+                        sharedBorders.push({ type: 'horizontal', x: x1, y: y1 });
+                    } else if (y1 === y2 && x1 + 1 === x2) {
+                        // b1 is directly left of b2
+                        sharedBorders.push({ type: 'vertical', x: x2, y: y1 });
+                    } else if (y1 === y2 && x2 + 1 === x1) {
+                        // b2 is directly left of b1
+                        sharedBorders.push({ type: 'vertical', x: x1, y: y1 });
+                    }
+                });
+            });
+
+            sharedBorders.forEach(border => {
+                const seamEl = document.createElement('div');
+                seamEl.className = `stitch-seam stitch-seam-${border.type}`;
+                const leftPx = border.x * 42;
+                const topPx = border.y * 42;
+
+                if (border.type === 'horizontal') {
+                    seamEl.style.left = `${leftPx + 4}px`;
+                    seamEl.style.top = `${topPx}px`;
+                    seamEl.style.width = '32px';
+                } else {
+                    seamEl.style.left = `${leftPx}px`;
+                    seamEl.style.top = `${topPx + 4}px`;
+                    seamEl.style.height = '32px';
+                }
+
+                if (this.mode === 'editor') {
+                    seamEl.title = 'Click to remove stitch';
+                    seamEl.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.toggleStitch(id1, id2);
+                    });
+                }
+
+                this.gridBoardEl.appendChild(seamEl);
+            });
+        });
     }
 
     selectBlock(blockId) {
@@ -591,7 +803,7 @@ class ColorBlockApp {
         });
 
         // Grid Tool Selection
-        ['wall', 'gate', 'erase'].forEach(tool => {
+        ['wall', 'gate', 'stitch', 'erase'].forEach(tool => {
             const btn = document.getElementById(`tool-${tool}`);
             if (btn) {
                 btn.addEventListener('click', () => {
@@ -602,6 +814,7 @@ class ColorBlockApp {
                     this.activeGridTool = tool;
                     this.selectedBlockId = null;
                     this.selectedGateCoord = null;
+                    this.stitchStartBlockId = null;
                     this.updateSpecialPanelsVisibility();
                 });
             }
@@ -863,6 +1076,7 @@ class ColorBlockApp {
                         e.preventDefault();
                         this.saveUndoState();
                         this.blocks = this.blocks.filter(b => b.id !== this.selectedBlockId);
+                        this.cleanStitches();
                         this.selectedBlockId = null;
                         this.renderBoard();
                     } else if (e.key === 'r' || e.key === 'R') {
@@ -890,6 +1104,7 @@ class ColorBlockApp {
             rows: this.rows,
             grid: this.grid.toJSON(),
             blocks: this.blocks,
+            stitches: this.stitches,
             nextBlockId: this.nextBlockId
         };
         const jsonStr = JSON.stringify(mapData, null, 2);
@@ -918,6 +1133,8 @@ class ColorBlockApp {
                 this.rows = data.rows;
                 this.grid = GameGrid.fromJSON(data.grid);
                 this.blocks = Array.isArray(data.blocks) ? data.blocks : [];
+                this.stitches = Array.isArray(data.stitches) ? data.stitches : [];
+                this.cleanStitches();
                 this.nextBlockId = typeof data.nextBlockId === 'number' ? data.nextBlockId : (
                     this.blocks.length > 0 ? Math.max(...this.blocks.map(b => b.id || 0)) + 1 : 1
                 );
@@ -965,7 +1182,7 @@ class ColorBlockApp {
         this.statusTextEl.textContent = 'Solving puzzle in progress...';
 
         setTimeout(() => {
-            const solver = new PuzzleSolver(this.grid.toJSON(), this.blocks);
+            const solver = new PuzzleSolver(this.grid.toJSON(), this.blocks, this.stitches);
             const result = solver.solve(150000, (exploredCount) => {
                 this.statusTextEl.textContent = `States explored: ${exploredCount}...`;
             });
@@ -995,11 +1212,13 @@ class ColorBlockApp {
         if (this.currentStepIndex === 0) {
             this.moveDescEl.textContent = 'Initial map layout';
         } else if (currentStep && currentStep.move) {
-            const { blockId, dir, exited, peeled } = currentStep.move;
+            const { blockId, dir, exited, peeled, isGroup } = currentStep.move;
             if (peeled) {
                 this.moveDescEl.textContent = `Block #${blockId} peels outer color through gate! 🎨`;
             } else if (exited) {
                 this.moveDescEl.textContent = `Block #${blockId} exits the board ${dir.toLowerCase()}! 🎉`;
+            } else if (isGroup && Array.isArray(blockId)) {
+                this.moveDescEl.textContent = `Move stitched group (${blockId.map(id => `#${id}`).join(', ')}) ${dir.toLowerCase()}`;
             } else {
                 this.moveDescEl.textContent = `Move Block #${blockId} ${dir.toLowerCase()}`;
             }

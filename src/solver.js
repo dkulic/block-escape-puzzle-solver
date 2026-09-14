@@ -75,7 +75,7 @@ class MinHeap {
 }
 
 export class PuzzleSolver {
-    constructor(gridData, blocksData) {
+    constructor(gridData, blocksData, stitchesData = []) {
         this.cols = gridData.cols;
         this.rows = gridData.rows;
         this.initialTiles = gridData.tiles.map(row => row.map(tile => ({ ...tile })));
@@ -92,6 +92,7 @@ export class PuzzleSolver {
             freezeCount: b.freezeCount || 0,
             isPriority: !!b.isPriority
         }));
+        this.initialStitches = (stitchesData || []).map(([a, b]) => [Math.min(a, b), Math.max(a, b)]);
 
         // Find toggle gate positions once for fast state serialization
         this.toggleGateCoords = [];
@@ -102,6 +103,45 @@ export class PuzzleSolver {
                 }
             }
         }
+    }
+
+    getConnectedGroups(blocks, stitches) {
+        const blockIds = new Set(blocks.map(b => b.id));
+        const validStitches = (stitches || []).filter(([a, b]) => blockIds.has(a) && blockIds.has(b));
+
+        const adj = new Map();
+        for (const b of blocks) {
+            adj.set(b.id, []);
+        }
+        for (const [a, b] of validStitches) {
+            adj.get(a).push(b);
+            adj.get(b).push(a);
+        }
+
+        const visited = new Set();
+        const groups = [];
+
+        for (const b of blocks) {
+            if (!visited.has(b.id)) {
+                const group = [];
+                const queue = [b.id];
+                visited.add(b.id);
+
+                while (queue.length > 0) {
+                    const curr = queue.shift();
+                    group.push(curr);
+                    for (const neighbor of (adj.get(curr) || [])) {
+                        if (!visited.has(neighbor)) {
+                            visited.add(neighbor);
+                            queue.push(neighbor);
+                        }
+                    }
+                }
+                groups.push(group);
+            }
+        }
+
+        return { groups, validStitches };
     }
 
     isPlayableCell(tiles, gx, gy) {
@@ -226,7 +266,7 @@ export class PuzzleSolver {
         return { newBlocks, newTiles };
     }
 
-    serializeState(blocks, tiles) {
+    serializeState(blocks, tiles, stitches) {
         let blocksKey = '';
         for (let i = 0; i < blocks.length; i++) {
             const b = blocks[i];
@@ -239,7 +279,14 @@ export class PuzzleSolver {
             gatesKey += `${tiles[r][c].isOpen ? 1 : 0}`;
         }
 
-        return `${blocksKey}|${gatesKey}`;
+        const blockIds = new Set(blocks.map(b => b.id));
+        const validStitchesStr = (stitches || [])
+            .filter(([a, b]) => blockIds.has(a) && blockIds.has(b))
+            .map(([a, b]) => `${Math.min(a, b)}-${Math.max(a, b)}`)
+            .sort()
+            .join(',');
+
+        return `${blocksKey}|${gatesKey}|${validStitchesStr}`;
     }
 
     buildOccupiedGrid(blocks) {
@@ -279,6 +326,7 @@ export class PuzzleSolver {
             history.unshift({
                 blocks: curr.blocks,
                 tiles: curr.tiles,
+                stitches: curr.stitches,
                 move: curr.move
             });
             curr = curr.parent;
@@ -292,6 +340,7 @@ export class PuzzleSolver {
     solve(maxStates = 250000, progressCallback = null) {
         const startBlocks = this.initialBlocks.map(b => ({ ...b }));
         const startTiles = this.initialTiles.map(row => row.map(t => ({ ...t })));
+        const startStitches = this.initialStitches.map(([a, b]) => [a, b]);
 
         for (const b of startBlocks) {
             if (!this.canOccupy(b, b.x, b.y, startTiles)) {
@@ -305,6 +354,7 @@ export class PuzzleSolver {
         const startNode = {
             blocks: startBlocks,
             tiles: startTiles,
+            stitches: startStitches,
             move: null,
             parent: null,
             priorityExitStep: priorityBlockId === null ? 0 : Infinity,
@@ -313,7 +363,7 @@ export class PuzzleSolver {
         heap.push(startNode);
 
         const visited = new Set();
-        visited.add(this.serializeState(startBlocks, startTiles));
+        visited.add(this.serializeState(startBlocks, startTiles, startStitches));
 
         const directions = [
             { dx: 0, dy: -1, name: 'Up' },
@@ -326,7 +376,7 @@ export class PuzzleSolver {
 
         while (heap.size() > 0) {
             const current = heap.pop();
-            const { blocks, tiles, priorityExitStep, totalSteps } = current;
+            const { blocks, tiles, stitches, priorityExitStep, totalSteps } = current;
 
             exploredCount++;
 
@@ -348,7 +398,81 @@ export class PuzzleSolver {
             }
 
             const occupiedGrid = this.buildOccupiedGrid(blocks);
+            const blockMap = new Map(blocks.map(b => [b.id, b]));
+            const { groups, validStitches } = this.getConnectedGroups(blocks, stitches);
 
+            // 1. Group movements on board
+            for (const groupIds of groups) {
+                const groupBlocks = groupIds.map(id => blockMap.get(id));
+
+                if (groupBlocks.some(b => !this.isMovable(b))) {
+                    continue;
+                }
+
+                const groupSet = new Set(groupIds);
+
+                for (const dir of directions) {
+                    let canGroupMove = true;
+
+                    for (const b of groupBlocks) {
+                        const nx = b.x + dir.dx;
+                        const ny = b.y + dir.dy;
+
+                        if (!this.canOccupy(b, nx, ny, tiles)) {
+                            canGroupMove = false;
+                            break;
+                        }
+
+                        // Check collision with blocks outside this group
+                        const shapeCells = getShapeCells(b.type, b.rotation);
+                        for (const [cx, cy] of shapeCells) {
+                            const gx = nx + cx;
+                            const gy = ny + cy;
+                            if (gx >= 0 && gx < this.cols && gy >= 0 && gy < this.rows) {
+                                const occ = occupiedGrid[gy][gx];
+                                if (occ !== null && !groupSet.has(occ)) {
+                                    canGroupMove = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!canGroupMove) break;
+                    }
+
+                    if (canGroupMove) {
+                        const newBlocks = blocks.map(b => groupSet.has(b.id) ? { ...b, x: b.x + dir.dx, y: b.y + dir.dy } : { ...b });
+                        const key = this.serializeState(newBlocks, tiles, validStitches);
+                        if (!visited.has(key)) {
+                            visited.add(key);
+                            heap.push({
+                                blocks: newBlocks,
+                                tiles: tiles,
+                                stitches: validStitches,
+                                move: {
+                                    blockId: groupBlocks.length > 1 ? groupIds : groupBlocks[0].id,
+                                    dir: dir.name,
+                                    exited: false,
+                                    color: groupBlocks[0].color,
+                                    isGroup: groupBlocks.length > 1
+                                },
+                                parent: current,
+                                priorityExitStep: priorityExitStep,
+                                totalSteps: totalSteps + 1
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Build group lookup map for fast access
+            const groupMap = new Map();
+            for (const groupIds of groups) {
+                for (const id of groupIds) {
+                    groupMap.set(id, groupIds);
+                }
+            }
+
+            // 2. Individual Block Exits / Peeling through gates
             for (let i = 0; i < blocks.length; i++) {
                 const block = blocks[i];
 
@@ -357,27 +481,6 @@ export class PuzzleSolver {
                 }
 
                 for (const dir of directions) {
-                    // 1. Move inside board
-                    const nx = block.x + dir.dx;
-                    const ny = block.y + dir.dy;
-
-                    if (this.canOccupy(block, nx, ny, tiles) && !this.isCollidingWithOthers(block, nx, ny, occupiedGrid)) {
-                        const newBlocks = blocks.map((b, idx) => idx === i ? { ...b, x: nx, y: ny } : { ...b });
-                        const key = this.serializeState(newBlocks, tiles);
-                        if (!visited.has(key)) {
-                            visited.add(key);
-                            heap.push({
-                                blocks: newBlocks,
-                                tiles: tiles,
-                                move: { blockId: block.id, dir: dir.name, exited: false, color: block.color },
-                                parent: current,
-                                priorityExitStep: priorityExitStep,
-                                totalSteps: totalSteps + 1
-                            });
-                        }
-                    }
-
-                    // 2. Exit through gate
                     if (this.canExit(block, block.x, block.y, dir.dx, dir.dy, occupiedGrid, tiles)) {
                         let newBlocks;
                         let newPriorityExitStep = priorityExitStep;
@@ -393,17 +496,19 @@ export class PuzzleSolver {
                                 newPriorityExitStep = totalSteps + 1;
                             }
 
-                            const tempBlocks = blocks.map((b, idx) => idx === i ? peeledBlock : { ...b });
+                            const tempBlocks = blocks.map(b => b.id === block.id ? peeledBlock : { ...b });
+
                             const elimResult = this.applyEliminationEvent(tempBlocks, tiles, block);
                             newBlocks = elimResult.newBlocks;
                             const newTiles = elimResult.newTiles;
 
-                            const key = this.serializeState(newBlocks, newTiles);
+                            const key = this.serializeState(newBlocks, newTiles, validStitches);
                             if (!visited.has(key)) {
                                 visited.add(key);
                                 heap.push({
                                     blocks: newBlocks,
                                     tiles: newTiles,
+                                    stitches: validStitches,
                                     move: { blockId: block.id, dir: dir.name, exited: false, peeled: true, color: block.color, newColor: peeledBlock.color },
                                     parent: current,
                                     priorityExitStep: newPriorityExitStep,
@@ -415,17 +520,19 @@ export class PuzzleSolver {
                                 newPriorityExitStep = totalSteps + 1;
                             }
 
-                            const tempBlocks = blocks.filter((_, idx) => idx !== i);
+                            const tempBlocks = blocks.filter(b => b.id !== block.id);
+                            const newStitches = validStitches.filter(([a, b]) => a !== block.id && b !== block.id);
                             const elimResult = this.applyEliminationEvent(tempBlocks, tiles, block);
                             newBlocks = elimResult.newBlocks;
                             const newTiles = elimResult.newTiles;
 
-                            const key = this.serializeState(newBlocks, newTiles);
+                            const key = this.serializeState(newBlocks, newTiles, newStitches);
                             if (!visited.has(key)) {
                                 visited.add(key);
                                 heap.push({
                                     blocks: newBlocks,
                                     tiles: newTiles,
+                                    stitches: newStitches,
                                     move: { blockId: block.id, dir: dir.name, exited: true, color: block.color },
                                     parent: current,
                                     priorityExitStep: newPriorityExitStep,
