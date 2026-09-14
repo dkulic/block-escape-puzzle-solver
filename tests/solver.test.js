@@ -162,4 +162,46 @@ console.log('Running PuzzleSolver tests...');
     console.log('✓ Test 6: Stitched blocks navigate obstacles and exit');
 }
 
+// Test 7: Save & Load Map JSON serialization with Stitches & Solver
+{
+    const grid = new GameGrid(6, 6);
+    grid.setTile(1, 2, TILE_TYPES.GATE, COLOR_PALETTE[0]);
+    grid.setTile(4, 2, TILE_TYPES.GATE, COLOR_PALETTE[1]);
+    for (let c = 1; c <= 4; c++) {
+        grid.setTile(c, 1, TILE_TYPES.WALL);
+        grid.setTile(c, 3, TILE_TYPES.WALL);
+    }
+
+    const blocks = [
+        { id: 1, type: SHAPE_TYPES.SINGLE_1, rotation: 0, color: COLOR_PALETTE[0], x: 2, y: 2, blockType: BLOCK_TYPES.NORMAL },
+        { id: 2, type: SHAPE_TYPES.SINGLE_1, rotation: 0, color: COLOR_PALETTE[1], x: 3, y: 2, blockType: BLOCK_TYPES.NORMAL }
+    ];
+    const stitches = [[1, 2]];
+
+    // Export map JSON string (same format as app.exportMapToFile)
+    const mapData = {
+        version: 1,
+        cols: 6,
+        rows: 6,
+        grid: grid.toJSON(),
+        blocks: blocks,
+        stitches: stitches,
+        nextBlockId: 3
+    };
+    const jsonStr = JSON.stringify(mapData);
+
+    // Import map from JSON (same format as app.importMapFromFile)
+    const importedData = JSON.parse(jsonStr);
+    const importedGrid = GameGrid.fromJSON(importedData.grid);
+    const importedBlocks = importedData.blocks;
+    const importedStitches = importedData.stitches;
+
+    assert(importedStitches.length === 1 && importedStitches[0][0] === 1 && importedStitches[0][1] === 2, 'Test 7 failed: stitches serialization mismatch');
+
+    const solver = new PuzzleSolver(importedGrid.toJSON(), importedBlocks, importedStitches);
+    const res = solver.solve();
+    assert(res.success === true, 'Test 7 failed: imported map should solve successfully');
+    console.log('✓ Test 7: Save & Load map JSON serialization with stitches');
+}
+
 console.log('\nAll PuzzleSolver tests passed successfully! ✨');
