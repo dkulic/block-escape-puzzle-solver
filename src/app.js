@@ -965,8 +965,8 @@ class ColorBlockApp {
         this.statusTextEl.textContent = 'Solving puzzle in progress...';
 
         setTimeout(() => {
-            const solver = new PuzzleSolver(this.grid.toJSON(), this.blocks);
-            const result = solver.solve(150000, (exploredCount) => {
+            const solver = new PuzzleSolver(this.grid.toJSON(), this.blocks, this.stitches);
+            const result = solver.solve(1000000, (exploredCount) => {
                 this.statusTextEl.textContent = `States explored: ${exploredCount}...`;
             });
 
